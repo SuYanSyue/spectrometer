@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>線上光譜儀 (影像修復版)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/regression/2.0.1/regression.min.js"></script>
+    <style>
+        :root { --primary: #2980b9; --active: #f1c40f; --bg: #0a0a0a; --dark: #000; --panel-bg: #1a1a1a; --box-bg: #252525; --text: #ecf0f1; --border: #333; }
+        body { font-family: -apple-system, sans-serif; margin: 0; padding: 0; background: var(--bg); color: var(--text); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        
+        .tabs { display: flex; background: var(--dark); color: white; font-weight: bold; height: 45px; z-index: 100; box-shadow: 0 2px 10px rgba(0,0,0,0.5); flex-shrink: 0; }
+        .version-badge { background: #e67e22; color: white; font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-left: 15px; align-self: center; white-space: nowrap; }
+        .tab { flex: 1; display: flex; align-items: center; justify-content: center; opacity: 0.4; cursor: pointer; transition: 0.2s; border-bottom: 3px solid transparent; font-size: 14px; }
+        .tab.active { opacity: 1; border-bottom-color: var(--active); color: var(--active); }
+        
+        #main-workspace { flex-grow: 1; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+        .tab-view-container { flex-grow: 1; display: flex; flex-direction: column; min-height: 0; width: 100%; height: 100%; }
+
+        .top-section { display: grid; grid-template-columns: 350px 1fr; height: 38vh; min-height: 250px; background: var(--bg); border-bottom: 2px solid var(--border); box-sizing: border-box; flex-shrink: 0; }
+        @media (max-width: 900px) { .top-section { grid-template-columns: 1fr; height: auto; } }
+        .control-panel { padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; background: var(--panel-bg); border-right: 1px solid var(--border); }
+        .video-panel { background: #000; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; height: 100%; }
+        video, #canvasVideo { position: absolute; width: 100%; height: 100%; object-fit: contain; }
+        #canvasVideo { z-index: 10; touch-action: none; }
+        .bottom-section { flex-grow: 1; display: flex; flex-direction: column; padding: 15px; box-sizing: border-box; min-height: 0; }
+        
+        #view-tab2 { padding: 15px; gap: 15px; box-sizing: border-box; overflow: hidden; }
+        #view-tab2 .chart-card { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+
+        .chart-card { background: #000; border-radius: 6px; border: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; box-shadow: 0 4px 15px rgba(0,0,0,0.8); flex-grow: 1; min-height: 0; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-weight: bold; font-size: 14px; flex-wrap: wrap; gap: 5px; }
+        
+        .spectrometer-ui-box { position: relative; width: 100%; display: flex; flex-direction: column; flex-shrink: 0; margin-bottom: 2px; }
+        .projection-wrapper { position: relative; width: 100%; height: 38px; background: transparent; overflow: hidden; border-radius: 2px; }
+        .proj-canvas { width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }
+        .chart-container { flex-grow: 1; position: relative; width: 100%; height: 100%; min-height: 0; }
+
+        .action-btn { border: none; border-radius: 4px; background: var(--primary); color: white; font-weight: bold; font-size: 13px; padding: 8px 10px; cursor: pointer; transition: 0.1s; text-align: center; white-space: nowrap; }
+        .action-btn:active { transform: scale(0.96); }
+        .action-btn:disabled { background: #555 !important; color: #888; cursor: not-allowed; transform: none; }
+        .action-btn.success { background: #27ae60; color: #fff; }
+        .action-btn.warning { background: #f39c12; color: #111; }
+        .action-btn.purple { background: #8e44ad; }
+        .action-btn.gray { background: #7f8c8d; }
+        
+        .slider-container-box { background: var(--box-bg); padding: 8px 10px; border-radius: 4px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+        .slider-row { display: flex; align-items: center; gap: 8px; }
+        .slider-row .label-text { font-size: 12px; font-weight: bold; color: #bdc3c7; white-space: nowrap; width: 55px; }
+        .slider-row input[type="range"] { flex-grow: 1; cursor: pointer; margin: 0; accent-color: var(--active); }
+        .slider-row input[type="range"]:disabled { opacity: 0.5; cursor: not-allowed; }
+        .slider-row .val-text { font-size: 12px; font-family: monospace; font-weight: bold; color: var(--active); width: 35px; text-align: right; }
+        
+        .calib-status { font-family: monospace; font-size: 12px; font-weight: bold; text-align: center; background: rgba(211, 84, 0, 0.1); color: #e67e22; padding: 8px; border-radius: 4px; border: 1px solid rgba(211, 84, 0, 0.3); margin-top: auto; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div class="tabs">
+    <div class="tab active" onclick="switchTab(1)" id="tab-1">1. 光纖幾何與波長校正</div>
+    <div class="tab" onclick="switchTab(2)" id="tab-2">2. 吸收光譜對照掃描</div>
+    <div class="version-badge">影像修復版 v24.0</div>
+</div>
+
+<video id="video-global" playsinline muted class="hidden"></video>
+<input type="file" id="file-tab1" accept="video/*,image/*" style="display:none;" onchange="handleFileUpload(event, 'TAB1')">
+<input type="file" id="file-ref" accept="video/*,image/*" style="display:none;" onchange="handleFileUpload(event, 'REF')">
+<input type="file" id="file-sam" accept="video/*,image/*" style="display:none;" onchange="handleFileUpload(event, 'SAM')">
+
+<div id="main-workspace">
+    <div id="view-tab1" class="tab-view-container">
+        <div class="top-section">
+            <div class="control-panel">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                    <button class="action-btn success" id="btn-cam-tab1" onclick="toggleCam('TAB1')">啟動攝影機</button>
+                    <button class="action-btn purple" onclick="document.getElementById('file-tab1').click()">📂 匯入檔案</button>
+                </div>
+
+                <div class="slider-container-box">
+                    <div class="slider-row">
+                        <span class="label-text">寬度(W)</span>
+                        <input type="range" id="roi-xw" min="10" max="100" value="80" oninput="onROISliderChange()">
+                        <span class="val-text" id="txt-roi-xw">80%</span>
+                    </div>
+                    <div class="slider-row">
+                        <span class="label-text">厚度(H)</span>
+                        <input type="range" id="roi-h" min="2" max="120" value="16" oninput="onROISliderChange()">
+                        <span class="val-text" id="txt-roi-h">16px</span>
+                    </div>
+                </div>
+
+                <div class="slider-container-box" style="padding: 8px 10px;">
+                    <div style="font-size: 11px; font-weight: bold; color: #bdc3c7; margin-bottom: 4px;">取樣矩形旋轉角度 (逆時針)</div>
+                    <div style="display:flex; gap:10px; align-items: center;">
+                        <button class="action-btn" id="btn-rot-90" style="flex:1; background:#444; padding:6px;" onclick="rotate90()">轉 +90°</button>
+                        <div style="display:flex; align-items:center; gap:5px;">
+                            <button class="action-btn warning" id="btn-rot-minus" style="padding: 6px 15px;" onclick="adjustAngle(-1)">-</button>
+                            <span id="txt-angle" style="font-family:monospace; font-size:15px; font-weight:bold; color: #fff; width: 45px; text-align:center;">0°</span>
+                            <button class="action-btn warning" id="btn-rot-plus" style="padding: 6px 15px;" onclick="adjustAngle(1)">+</button>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="action-btn" id="btn-calib-action" style="padding: 12px; font-size: 14px; margin-top: 2px;" onclick="startPeakCalibration()">📍 開始標定特徵波長</button>
+                <div id="calib-status-txt" class="calib-status">未校正狀態</div>
+            </div>
+            
+            <div class="video-panel">
+                <canvas id="canvasVideo"></canvas>
+            </div>
+        </div>
+
+        <div class="bottom-section">
+            <div class="chart-card">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <span style="color: var(--active); font-weight:bold; font-size:14px;">動態強度分佈圖 (Wavelength Spectrum)</span>
+                </div>
+                <div class="spectrometer-ui-box">
+                    <div class="projection-wrapper"><canvas id="canvasProjMain" class="proj-canvas"></canvas></div>
+                </div>
+                <div class="chart-container"><canvas id="chartMain"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-tab2" class="tab-view-container hidden">
+        
+        <div class="chart-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span style="color: #3498db; font-size: 15px; font-weight:bold;">基準對照光源 (I₀)</span>
+                <div style="display:flex; gap:10px;">
+                    <button class="action-btn success" id="btn-cam-ref" style="width:120px;" onclick="toggleCam('REF')">啟動攝影機</button>
+                    <button class="action-btn purple" style="width:100px;" onclick="document.getElementById('file-ref').click()">📂 匯入檔案</button>
+                    <button class="action-btn" id="btn-save-ref" style="width:180px; background:#2980b9;" onclick="saveReference()">✅ 儲存為基準光源</button>
+                </div>
+            </div>
+            <div class="spectrometer-ui-box">
+                <div class="projection-wrapper"><canvas id="canvasProjRef" class="proj-canvas"></canvas></div>
+            </div>
+            <div class="chart-container"><canvas id="chartRef"></canvas></div>
+        </div>
+
+        <div class="chart-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span style="color: #e74c3c; font-size: 15px; font-weight:bold;">待測樣本掃描 (Sample)</span>
+                <div style="display:flex; flex-grow:1; justify-content:space-between;">
+                    <div style="display:flex; gap:10px; margin-left: auto;">
+                        <button class="action-btn success" id="btn-cam-sam" style="width:120px;" onclick="toggleCam('SAM')">啟動攝影機</button>
+                        <button class="action-btn purple" style="width:100px;" onclick="document.getElementById('file-sam').click()">📂 匯入檔案</button>
+                        <button class="action-btn purple" id="btn-toggle-abs" style="width:180px;" onclick="toggleAbsorbanceMode()">切換：顯示吸光度 (A)</button>
+                    </div>
+                    <button class="action-btn" style="background:#2ecc71; color:#000; margin-left:15px; width:120px;" onclick="exportFinalCSV()">📥 匯出 CSV</button>
+                </div>
+            </div>
+            <div class="spectrometer-ui-box">
+                <div class="projection-wrapper"><canvas id="canvasProjSample" class="proj-canvas"></canvas></div>
+            </div>
+            <div class="chart-container"><canvas id="chartSample"></canvas></div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    const video = document.getElementById('video-global');
+    const canvasV = document.getElementById('canvasVideo');
+    const ctxV = canvasV.getContext('2d');
+    
+    const canvasPMain = document.getElementById('canvasProjMain');
+    const canvasPRef = document.getElementById('canvasProjRef');
+    const canvasPSample = document.getElementById('canvasProjSample');
+
+    let loopId = null;
+    let isCameraGlobalActive = false;
+    let currentTab = 1;
+
+    // ROI 幾何變數
+    let roiCXPer = 0.5; let roiCYPer = 0.5; let roiXWPer = 0.8; let roiH = 16; let roiAngle = 0; 
+    let isDragging = false; let dragMode = "NONE"; let dragStartPos = { x: 0, y: 0 };
+    let startRoiCX = 0.5; let startRoiCY = 0.5; let startRoiXW = 0.8;
+
+    // 校正模型
+    let isCalibrating = false; let calibStep = 0; let calibPoints = []; let isCalibrated = false;
+    let wavelengthFormula = (r) => 400 + r * 300; 
+    let stepRatioCache = { blue: null, green: null, red: null };
+    let isLoupeActive = false; let loupePos = { x: 0, y: 0 }; 
+
+    // 圖表實例
+    let chartMain = null; let chartRef = null; let chartSample = null;
+    
+    // 獨立快門狀態機 (0: Off, 1: Live, 2: Frozen/File)
+    let stateTab1 = 0; let stateRef = 0; let stateSam = 0;
+
+    // 🌟 核心修復：資料儲存槽徹底解耦，建立專屬 offCanvas 防覆寫
+    let dataTab1 = { intensities: [], colors: [], img: null, offCanvas: document.createElement('canvas') };
+    let dataRef  = { intensities: [], colors: [], img: null, offCanvas: document.createElement('canvas') };
+    let dataSam  = { intensities: [], colors: [], img: null, offCanvas: document.createElement('canvas') };
+    
+    let isAbsorbanceMode = false;
+
+    // ==========================================
+    // 1. 三態快門狀態機與影像擷取核心
+    // ==========================================
+    function startGlobalCamera() {
+        if (isCameraGlobalActive) return;
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 3840 }, height: { ideal: 2160 } } })
+        .then(stream => {
+            video.srcObject = stream; video.play(); isCameraGlobalActive = true;
+            video.onloadedmetadata = () => { canvasV.width = video.videoWidth; canvasV.height = video.videoHeight; startRenderLoop(); };
+        }).catch(err => alert("相機啟動失敗: " + err));
+    }
+
+    function checkAndStopGlobalCamera() {
+        if (stateTab1 !== 1 && stateRef !== 1 && stateSam !== 1) {
+            if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+            video.srcObject = null; isCameraGlobalActive = false;
+        }
+    }
+
+    function updateCamBtnUI(btnId, state) {
+        const btn = document.getElementById(btnId);
+        if(state === 0) { btn.innerText = "啟動攝影機"; btn.className = "action-btn success"; }
+        else if(state === 1) { btn.innerText = "📸 拍照定格"; btn.className = "action-btn warning"; }
+        else if(state === 2) { btn.innerText = "🛑 關閉影像"; btn.className = "action-btn gray"; }
+    }
+
+    function toggleCam(zone) {
+        if(zone === 'TAB1') {
+            if(stateTab1 === 0) { startGlobalCamera(); stateTab1 = 1; dataTab1.img = null; }
+            else if(stateTab1 === 1) { stateTab1 = 2; freezeZone('TAB1'); }
+            else { stateTab1 = 0; dataTab1.intensities = []; dataTab1.img = null; }
+            updateCamBtnUI('btn-cam-tab1', stateTab1);
+        } else if(zone === 'REF') {
+            if(stateRef === 0) { startGlobalCamera(); stateRef = 1; dataRef.img = null; }
+            else if(stateRef === 1) { stateRef = 2; freezeZone('REF'); }
+            else { stateRef = 0; dataRef.intensities = []; dataRef.img = null; }
+            updateCamBtnUI('btn-cam-ref', stateRef);
+        } else if(zone === 'SAM') {
+            if(stateSam === 0) { startGlobalCamera(); stateSam = 1; dataSam.img = null; }
+            else if(stateSam === 1) { stateSam = 2; freezeZone('SAM'); }
+            else { stateSam = 0; dataSam.intensities = []; dataSam.img = null; }
+            updateCamBtnUI('btn-cam-sam', stateSam);
+        }
+        checkAndStopGlobalCamera();
+        processFrame(); 
+    }
+
+    // 🌟 核心修復：同步繪製擷取，防延遲丟圖
+    function freezeZone(zone) {
+        if (!canvasV.width) return;
+        let snapCanvas = document.createElement('canvas');
+        snapCanvas.width = canvasV.width; snapCanvas.height = canvasV.height;
+        snapCanvas.getContext('2d').drawImage(video, 0, 0, canvasV.width, canvasV.height);
+        
+        if(zone === 'TAB1') dataTab1.img = snapCanvas;
+        else if(zone === 'REF') dataRef.img = snapCanvas;
+        else if(zone === 'SAM') dataSam.img = snapCanvas;
+        processFrame();
+    }
+
+    function handleFileUpload(event, zone) {
+        const file = event.target.files[0]; if (!file) return;
+        const url = URL.createObjectURL(file);
+        let img = new Image();
+        img.onload = () => {
+            canvasV.width = img.width; canvasV.height = img.height; 
+            if(zone === 'TAB1') { stateTab1 = 2; dataTab1.img = img; updateCamBtnUI('btn-cam-tab1', stateTab1); }
+            else if(zone === 'REF') { stateRef = 2; dataRef.img = img; updateCamBtnUI('btn-cam-ref', stateRef); }
+            else if(zone === 'SAM') { stateSam = 2; dataSam.img = img; updateCamBtnUI('btn-cam-sam', stateSam); }
+            checkAndStopGlobalCamera();
+            processFrame();
+        };
+        img.src = url;
+    }
+
+    // ==========================================
+    // 2. 獨立光學資料萃取引擎
+    // ==========================================
+    function extractSpectrumData(sourceObj, targetOffCanvas) {
+        if (!canvasV.width) return null;
+        let rw = Math.max(1, roiXWPer * canvasV.width); let rh = Math.max(1, roiH);
+        let cx = roiCXPer * canvasV.width; let cy = roiCYPer * canvasV.height;
+        let angleRad = -roiAngle * Math.PI / 180;
+
+        targetOffCanvas.width = rw; targetOffCanvas.height = rh;
+        let oCtx = targetOffCanvas.getContext('2d', {willReadFrequently: true});
+        oCtx.translate(rw/2, rh/2); oCtx.rotate(-angleRad); oCtx.translate(-cx, -cy);
+        oCtx.drawImage(sourceObj, 0, 0, canvasV.width, canvasV.height);
+
+        const roiData = oCtx.getImageData(0, 0, rw, rh).data;
+        let wInt = Math.floor(rw);
+        let intensities = new Array(wInt).fill(0);
+        let colors = new Array(wInt);
+
+        for (let x = 0; x < wInt; x++) {
+            let sumI = 0, sumR = 0, sumG = 0, sumB = 0;
+            for (let y = 0; y < rh; y++) {
+                let idx = (y * wInt + x) * 4;
+                sumR += roiData[idx]; sumG += roiData[idx+1]; sumB += roiData[idx+2];
+                sumI += (0.299 * roiData[idx] + 0.587 * roiData[idx+1] + 0.114 * roiData[idx+2]);
+            }
+            intensities[x] = sumI / rh;
+            colors[x] = `rgb(${Math.round(sumR/rh)},${Math.round(sumG/rh)},${Math.round(sumB/rh)})`;
+        }
+        return { intensities, colors };
+    }
+
+    // ==========================================
+    // 3. 全局循環渲染器
+    // ==========================================
+    function startRenderLoop() {
+        if (loopId) cancelAnimationFrame(loopId);
+        function frame() {
+            if (isCameraGlobalActive && video.readyState >= video.HAVE_ENOUGH_DATA) {
+                processFrame();
+            }
+            loopId = requestAnimationFrame(frame);
+        }
+        frame();
+    }
+
+    function processFrame() {
+        if(!canvasV.width) return;
+
+        // 獨立資料擷取與快取更新
+        if(stateTab1 === 1 && isCameraGlobalActive) {
+            let ext = extractSpectrumData(video, dataTab1.offCanvas);
+            if(ext) { dataTab1.intensities = ext.intensities; dataTab1.colors = ext.colors; }
+        } else if(stateTab1 === 2 && dataTab1.img) {
+            let ext = extractSpectrumData(dataTab1.img, dataTab1.offCanvas);
+            if(ext) { dataTab1.intensities = ext.intensities; dataTab1.colors = ext.colors; }
+        } else if(stateTab1 === 0) { dataTab1.intensities = []; dataTab1.colors = []; }
+        
+        if(stateRef === 1 && isCameraGlobalActive) {
+            let ext = extractSpectrumData(video, dataRef.offCanvas);
+            if(ext) { dataRef.intensities = ext.intensities; dataRef.colors = ext.colors; }
+        } else if(stateRef === 2 && dataRef.img) {
+            let ext = extractSpectrumData(dataRef.img, dataRef.offCanvas);
+            if(ext) { dataRef.intensities = ext.intensities; dataRef.colors = ext.colors; }
+        } else if(stateRef === 0) { dataRef.intensities = []; dataRef.colors = []; }
+
+        if(stateSam === 1 && isCameraGlobalActive) {
+            let ext = extractSpectrumData(video, dataSam.offCanvas);
+            if(ext) { dataSam.intensities = ext.intensities; dataSam.colors = ext.colors; }
+        } else if(stateSam === 2 && dataSam.img) {
+            let ext = extractSpectrumData(dataSam.img, dataSam.offCanvas);
+            if(ext) { dataSam.intensities = ext.intensities; dataSam.colors = ext.colors; }
+        } else if(stateSam === 0) { dataSam.intensities = []; dataSam.colors = []; }
+
+        // UI 渲染分發
+        if (currentTab === 1) {
+            ctxV.clearRect(0, 0, canvasV.width, canvasV.height);
+            if(stateTab1 === 1) ctxV.drawImage(video, 0, 0, canvasV.width, canvasV.height);
+            else if(stateTab1 === 2 && dataTab1.img) ctxV.drawImage(dataTab1.img, 0, 0, canvasV.width, canvasV.height);
+
+            if(stateTab1 !== 0) {
+                let rw = Math.max(1, roiXWPer * canvasV.width); let rh = Math.max(1, roiH);
+                let cx = roiCXPer * canvasV.width; let cy = roiCYPer * canvasV.height;
+                let angleRad = -roiAngle * Math.PI / 180;
+                ctxV.save(); ctxV.translate(cx, cy); ctxV.rotate(angleRad);
+                ctxV.strokeStyle = isCalibrating ? '#e74c3c' : '#1abc9c';
+                ctxV.lineWidth = Math.max(2, canvasV.width / 500);
+                ctxV.strokeRect(-rw/2, -rh/2, rw, rh);
+                if(!isCalibrating) { ctxV.fillStyle = 'rgba(26, 188, 156, 0.6)'; ctxV.fillRect(rw/2 - 6, -rh/2, 6, rh); }
+                ctxV.restore();
+            }
+
+            if(dataTab1.intensities.length > 0) {
+                renderRealImageProjection(canvasPMain, chartMain, dataTab1.offCanvas, dataTab1.colors);
+                updateChartData(chartMain, dataTab1.intensities);
+            } else {
+                canvasPMain.getContext('2d').clearRect(0, 0, canvasPMain.width, canvasPMain.height);
+                if(chartMain) { chartMain.data.datasets[0].data = []; chartMain.update('none'); }
+            }
+        } 
+        else if (currentTab === 2) {
+            if(dataRef.intensities.length > 0) {
+                renderRealImageProjection(canvasPRef, chartRef, dataRef.offCanvas, dataRef.colors);
+                updateChartData(chartRef, dataRef.intensities);
+            } else {
+                canvasPRef.getContext('2d').clearRect(0, 0, canvasPRef.width, canvasPRef.height);
+                if(chartRef) { chartRef.data.datasets[0].data = []; chartRef.update('none'); }
+            }
+
+            if(dataSam.intensities.length > 0) {
+                renderRealImageProjection(canvasPSample, chartSample, dataSam.offCanvas, dataSam.colors);
+                updateChartData(chartSample, dataSam.intensities, isAbsorbanceMode ? dataRef.intensities : null);
+            } else {
+                canvasPSample.getContext('2d').clearRect(0, 0, canvasPSample.width, canvasPSample.height);
+                if(chartSample) { chartSample.data.datasets[0].data = []; chartSample.update('none'); }
+            }
+        }
+    }
+
+    // ==========================================
+    // 4. GUI 控制項與拖曳
+    // ==========================================
+    function switchTab(step) {
+        currentTab = step;
+        document.getElementById('tab-1').className = step === 1 ? 'tab active' : 'tab';
+        document.getElementById('tab-2').className = step === 2 ? 'tab active' : 'tab';
+        document.getElementById('view-tab1').className = step === 1 ? 'tab-view-container' : 'tab-view-container hidden';
+        document.getElementById('view-tab2').className = step === 2 ? 'tab-view-container' : 'tab-view-container hidden';
+
+        if (step === 1) lockROIControls(isCalibrating); 
+        else if (step === 2) lockROIControls(true); 
+        
+        forceReinitChart(); setTimeout(() => { processFrame(); }, 50);
+    }
+
+    function lockROIControls(locked) {
+        document.getElementById('roi-xw').disabled = locked;
+        document.getElementById('roi-h').disabled = locked;
+        document.getElementById('btn-rot-90').disabled = locked;
+        document.getElementById('btn-rot-minus').disabled = locked;
+        document.getElementById('btn-rot-plus').disabled = locked;
+    }
+
+    function rotate90() { roiAngle = (roiAngle + 90) % 360; updateAngleUI(); }
+    function adjustAngle(delta) { roiAngle += delta; if(roiAngle >= 360) roiAngle -= 360; if(roiAngle < 0) roiAngle += 360; updateAngleUI(); }
+    function updateAngleUI() { document.getElementById('txt-angle').innerText = roiAngle + "°"; processFrame(); }
+    function onROISliderChange() {
+        roiXWPer = parseFloat(document.getElementById('roi-xw').value) / 100;
+        roiH = parseInt(document.getElementById('roi-h').value);
+        document.getElementById('txt-roi-xw').innerText = (roiXWPer*100).toFixed(0) + "%";
+        document.getElementById('txt-roi-h').innerText = roiH + "px";
+        processFrame();
+    }
+
+    // 視訊拖曳 (Tab1)
+    canvasV.addEventListener('pointerdown', (e) => {
+        if (!canvasV.width || isCalibrating || currentTab !== 1 || stateTab1 === 0) return; 
+        canvasV.setPointerCapture(e.pointerId);
+        const rect = canvasV.getBoundingClientRect();
+        const mouseX = (e.clientX - rect.left) * (canvasV.width / rect.width);
+        const mouseY = (e.clientY - rect.top) * (canvasV.height / rect.height);
+        
+        let cx = roiCXPer * canvasV.width; let cy = roiCYPer * canvasV.height;
+        let rw = roiXWPer * canvasV.width; let angleRad = -roiAngle * Math.PI / 180; 
+        
+        let dx = mouseX - cx; let dy = mouseY - cy;
+        let localX = dx * Math.cos(-angleRad) - dy * Math.sin(-angleRad);
+        let localY = dx * Math.sin(-angleRad) + dy * Math.cos(-angleRad);
+
+        if (Math.abs(localX - rw/2) < 25 && Math.abs(localY) <= roiH/2 + 10) { dragMode = "RESIZE_WIDTH"; } 
+        else if (Math.abs(localX) <= rw/2 && Math.abs(localY) <= roiH/2) { dragMode = "MOVE"; } 
+        else {
+            roiCXPer = Math.max(0, Math.min(1.0, mouseX / canvasV.width));
+            roiCYPer = Math.max(0, Math.min(1.0, mouseY / canvasV.height));
+            dragMode = "MOVE";
+        }
+        isDragging = true; dragStartPos = { x: mouseX, y: mouseY, localX: localX }; 
+        startRoiCX = roiCXPer; startRoiCY = roiCYPer; startRoiXW = roiXWPer;
+        processFrame();
+    });
+
+    canvasV.addEventListener('pointermove', (e) => {
+        if (!isDragging || !canvasV.width || isCalibrating || currentTab !== 1) return;
+        const rect = canvasV.getBoundingClientRect();
+        const mouseX = (e.clientX - rect.left) * (canvasV.width / rect.width);
+        const mouseY = (e.clientY - rect.top) * (canvasV.height / rect.height);
+        
+        if (dragMode === "MOVE") {
+            let deltaXPer = (mouseX - dragStartPos.x) / canvasV.width; let deltaYPer = (mouseY - dragStartPos.y) / canvasV.height;
+            roiCXPer = Math.max(0, Math.min(1.0, startRoiCX + deltaXPer)); roiCYPer = Math.max(0, Math.min(1.0, startRoiCY + deltaYPer));
+        } else if (dragMode === "RESIZE_WIDTH") {
+            let cx = startRoiCX * canvasV.width; let cy = startRoiCY * canvasV.height;
+            let angleRad = -roiAngle * Math.PI / 180;
+            let dx = mouseX - cx; let dy = mouseY - cy;
+            let localX = dx * Math.cos(-angleRad) - dy * Math.sin(-angleRad);
+            let deltaLocalX = localX - dragStartPos.localX;
+            roiXWPer = Math.max(0.05, Math.min(1.0, startRoiXW + (deltaLocalX * 2) / canvasV.width));
+            document.getElementById('roi-xw').value = roiXWPer * 100;
+            document.getElementById('txt-roi-xw').innerText = (roiXWPer*100).toFixed(0) + "%";
+        }
+        processFrame();
+    });
+    canvasV.addEventListener('pointerup', (e) => { canvasV.releasePointerCapture(e.pointerId); isDragging = false; dragMode = "NONE"; });
+
+    // ==========================================
+    // 5. 標定引擎 (在 Tab1 操作)
+    // ==========================================
+    canvasPMain.addEventListener('pointerdown', (e) => {
+        if (!dataTab1.intensities.length || !isCalibrating || currentTab !== 1) return;
+        canvasPMain.setPointerCapture(e.pointerId); isLoupeActive = true; updateLoupeCoordinate(e);
+    });
+    canvasPMain.addEventListener('pointermove', (e) => { if (isLoupeActive) updateLoupeCoordinate(e); });
+    window.addEventListener('pointerup', () => {
+        if (isLoupeActive) { 
+            isLoupeActive = false; saveCalibPoint(); 
+            renderRealImageProjection(canvasPMain, chartMain, dataTab1.offCanvas, dataTab1.colors);
+        }
+    });
+
+    function updateLoupeCoordinate(e) {
+        const rect = canvasPMain.getBoundingClientRect();
+        loupePos.x = (e.clientX - rect.left) * (canvasPMain.width / rect.width); loupePos.y = canvasPMain.height / 2; 
+        renderRealImageProjection(canvasPMain, chartMain, dataTab1.offCanvas, dataTab1.colors);
+    }
+
+    function getAbsoluteCameraRatioFromPixel(pixelX, chartInstance) {
+        const xAxis = chartInstance.scales.x;
+        if (!isCalibrated) {
+            let subRatio = Math.max(0, Math.min(1.0, (pixelX - xAxis.left) / (xAxis.right - xAxis.left)));
+            return getAbsoluteCameraRatio(subRatio);
+        } else {
+            let clickedWl = xAxis.getValueForPixel(pixelX);
+            let bestAbsRatio = getAbsoluteCameraRatio(0); let minDiff = Infinity;
+            for (let i = 0; i <= 2000; i++) {
+                let absRatio = getAbsoluteCameraRatio(i / 2000); let wl = wavelengthFormula(absRatio); let diff = Math.abs(wl - clickedWl);
+                if (diff < minDiff) { minDiff = diff; bestAbsRatio = absRatio; }
+            }
+            return bestAbsRatio;
+        }
+    }
+
+    function getAbsoluteCameraRatio(ratio) {
+        let angleRad = -roiAngle * Math.PI / 180; 
+        let cx = roiCXPer * canvasV.width; let cy = roiCYPer * canvasV.height; let rw = roiXWPer * canvasV.width;
+        let local_u = (ratio - 0.5) * rw; 
+        let pixelX = cx + local_u * Math.cos(angleRad); let pixelY = cy + local_u * Math.sin(angleRad);
+        return (pixelX * Math.cos(angleRad) + pixelY * Math.sin(angleRad)) / canvasV.width;
+    }
+
+    function drawProjectionLoupe(ctx, targetCanvas, chartInstance, sourceCanvas, sourceColors) {
+        if (!chartInstance) return;
+        const RADIUS = 45; let lx = loupePos.x; let ly = targetCanvas.height / 2; 
+        ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 6;
+        ctx.beginPath(); ctx.arc(lx, ly, RADIUS, 0, Math.PI * 2);
+        ctx.lineWidth = 2.5; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.clip();
+
+        const xAxis = chartInstance.scales.x;
+        for (let i = -RADIUS; i <= RADIUS; i++) {
+            let pixelX = lx + i;
+            let absRatio = getAbsoluteCameraRatioFromPixel(pixelX, chartInstance);
+            let subRatio = (absRatio - getAbsoluteCameraRatio(0.0)) / (getAbsoluteCameraRatio(1.0) - getAbsoluteCameraRatio(0.0));
+            let srcX = Math.floor(subRatio * sourceCanvas.width);
+            if (srcX >= 0 && srcX < sourceCanvas.width) {
+                ctx.drawImage(sourceCanvas, srcX, 0, 1, sourceCanvas.height, pixelX, ly - RADIUS, 1, RADIUS * 2);
+            } else { ctx.fillStyle = '#000'; ctx.fillRect(pixelX, ly - RADIUS, 1, RADIUS * 2); }
+        }
+        ctx.beginPath(); ctx.moveTo(lx, ly - RADIUS); ctx.lineTo(lx, ly + RADIUS); ctx.moveTo(lx - RADIUS, ly); ctx.lineTo(lx + RADIUS, ly);
+        ctx.strokeStyle = '#e74c3c'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.restore();
+    }
+
+    function saveCalibPoint() {
+        if(!chartMain) return;
+        let absoluteCameraRatio = getAbsoluteCameraRatioFromPixel(loupePos.x, chartMain);
+        let targetWl = (calibStep === 1) ? 452 : (calibStep === 2) ? 533 : 611;
+        calibPoints.push([absoluteCameraRatio, targetWl]);
+
+        if (calibStep === 1) stepRatioCache.blue = absoluteCameraRatio;
+        else if (calibStep === 2) stepRatioCache.green = absoluteCameraRatio;
+        else if (calibStep === 3) stepRatioCache.red = absoluteCameraRatio;
+
+        forceReinitChart();
+
+        if (calibStep < 3) {
+            calibStep++; document.getElementById('calib-status-txt').innerHTML = `<span style='color:#f1c40f;'>🎯 標定下一波峰...</span>`;
+            processFrame();
+        } else {
+            isCalibrating = false; lockROIControls(false);
+            try {
+                const res = regression.polynomial(calibPoints, { order: 2 });
+                wavelengthFormula = (r) => res.equation[0]*r*r + res.equation[1]*r + res.equation[2];
+                document.getElementById('calib-status-txt').innerHTML = `✅ 標定成功 (二階)<br><span style="color:#2ecc71;">R² = ${Math.min(1, res.r2||1).toFixed(5)}</span>`;
+            } catch(err) {
+                const res = regression.linear(calibPoints);
+                wavelengthFormula = (r) => res.equation[0]*r + res.equation[1];
+                document.getElementById('calib-status-txt').innerHTML = `✅ 標定成功 (線性)`;
+            }
+            isCalibrated = true; document.getElementById('btn-calib-action').innerText = "📍 重新標定"; 
+            forceReinitChart(); processFrame();
+        }
+    }
+
+    function startPeakCalibration() {
+        if(!dataTab1.intensities.length) { alert("請先啟動影像或匯入圖片！"); return; }
+        // 進入標定時，強制凍結相機，防止抖動
+        if (stateTab1 === 1) toggleCam('TAB1'); 
+        
+        lockROIControls(true); calibStep = 1; calibPoints = []; isCalibrated = false; isCalibrating = true;
+        stepRatioCache = { blue: null, green: null, red: null }; wavelengthFormula = (r) => 400 + r * 300; 
+        document.getElementById('calib-status-txt').innerHTML = "<span style='color:#3498db;'>🎯 標定 452nm (藍)</span>";
+        forceReinitChart(); processFrame();
+    }
+
+    // ==========================================
+    // 6. 圖表映射與渲染模組
+    // ==========================================
+    function renderRealImageProjection(targetCanvas, targetChart, sourceCanvas, sourceColors) {
+        const ctx = targetCanvas.getContext('2d');
+        if (!sourceCanvas || sourceCanvas.width === 0 || !targetChart) {
+            ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height); return;
+        }
+        
+        const xAxis = targetChart.scales.x;
+        const gridLeftPx = xAxis.left; const gridRightPx = xAxis.right; const gridWidthPx = gridRightPx - gridLeftPx;
+
+        let containerWidth = targetCanvas.parentElement.clientWidth;
+        if (targetCanvas.width !== containerWidth) { targetCanvas.width = containerWidth; targetCanvas.height = 36; }
+        ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+
+        if (gridWidthPx > 0) {
+            ctx.fillStyle = '#000'; ctx.fillRect(gridLeftPx, 0, gridWidthPx, targetCanvas.height);
+            for (let srcX = 0; srcX < sourceCanvas.width - 1; srcX++) {
+                let ratio1 = srcX / (sourceCanvas.width - 1); let ratio2 = (srcX + 1) / (sourceCanvas.width - 1);
+                let x1, x2;
+                if (isCalibrated) {
+                    x1 = xAxis.getPixelForValue(wavelengthFormula(getAbsoluteCameraRatio(ratio1)));
+                    x2 = xAxis.getPixelForValue(wavelengthFormula(getAbsoluteCameraRatio(ratio2)));
+                } else { x1 = xAxis.getPixelForValue(ratio1 * 100); x2 = xAxis.getPixelForValue(ratio2 * 100); }
+
+                let left = Math.min(x1, x2); let right = Math.max(x1, x2);
+                let w = right - left; if (w < 1) w = 1.5; 
+                if (right < gridLeftPx || left > gridRightPx) continue;
+                ctx.drawImage(sourceCanvas, srcX, 0, 1, sourceCanvas.height, left, 0, w, targetCanvas.height);
+            }
+            ctx.strokeStyle = '#444'; ctx.lineWidth = 1.5; ctx.strokeRect(gridLeftPx, 0, gridWidthPx, targetCanvas.height);
+        }
+        if (isLoupeActive && targetCanvas.id === 'canvasProjMain') drawProjectionLoupe(ctx, targetCanvas, targetChart, sourceCanvas, sourceColors);
+    }
+
+    function updateChartData(targetChart, intensities, referenceForAbsorbance = null) {
+        if (!targetChart || intensities.length === 0) return;
+        let chartPointsCount = 200; let finalChartData = []; let srcLen = intensities.length;
+
+        let leftWl = wavelengthFormula(getAbsoluteCameraRatio(0.0));
+        let rightWl = wavelengthFormula(getAbsoluteCameraRatio(1.0));
+
+        if (isCalibrated) {
+            if (leftWl > rightWl) { targetChart.options.scales.x.min = rightWl; targetChart.options.scales.x.max = leftWl; targetChart.options.scales.x.reverse = true; } 
+            else { targetChart.options.scales.x.min = leftWl; targetChart.options.scales.x.max = rightWl; targetChart.options.scales.x.reverse = false; }
+        } else { targetChart.options.scales.x.min = 0; targetChart.options.scales.x.max = 100; targetChart.options.scales.x.reverse = false; }
+
+        for (let i = 0; i < chartPointsCount; i++) {
+            let ratio = i / (chartPointsCount - 1);
+            let srcIdx = Math.floor(ratio * (srcLen - 1)); srcIdx = Math.max(0, srcIdx);
+            let xValue = isCalibrated ? wavelengthFormula(getAbsoluteCameraRatio(ratio)) : ratio * 100;
+            let I = intensities[srcIdx] || 0;
+
+            if (referenceForAbsorbance && referenceForAbsorbance.length > 0) {
+                let I0 = referenceForAbsorbance[srcIdx] || 255;
+                if (I <= 0) I = 0.1; if (I0 <= 0) I0 = 255; if (I > I0) I = I0;
+                let A = -Math.log10(I / I0); finalChartData.push({ x: xValue, y: A });
+            } else { finalChartData.push({ x: xValue, y: I }); }
+        }
+        targetChart.data.datasets[0].data = finalChartData; targetChart.update('none'); 
+    }
+
+    const linePlugin = {
+        id: 'calibLines',
+        afterDatasetsDraw: (chart) => {
+            const ctx = chart.ctx; const xAxis = chart.scales.x;
+            const top = chart.chartArea.top; const bottom = chart.chartArea.bottom;
+
+            let leftWl = wavelengthFormula(getAbsoluteCameraRatio(0.0)); let rightWl = wavelengthFormula(getAbsoluteCameraRatio(1.0));
+            let minWl = Math.min(leftWl, rightWl); let maxWl = Math.max(leftWl, rightWl);
+
+            const drawLine = (absoluteRatio, wl, color, name) => {
+                if (absoluteRatio === null) return;
+                let targetX;
+                if (isCalibrated) {
+                    let calcWl = wavelengthFormula(absoluteRatio);
+                    if (calcWl < minWl || calcWl > maxWl) return; 
+                    targetX = xAxis.getPixelForValue(calcWl);
+                } else {
+                    let r0 = getAbsoluteCameraRatio(0.0); let r1 = getAbsoluteCameraRatio(1.0);
+                    let subRatio = (absoluteRatio - r0) / (r1 - r0);
+                    if (subRatio < 0 || subRatio > 1.0) return; 
+                    targetX = xAxis.getPixelForValue(subRatio * 100);
+                }
+                ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
+                ctx.beginPath(); ctx.moveTo(targetX, top); ctx.lineTo(targetX, bottom); ctx.stroke();
+                ctx.fillStyle = color; ctx.font = "10px sans-serif";
+                ctx.fillText(`${name} (${wl})`, targetX + 4, top + 12); ctx.restore();
+            };
+            drawLine(stepRatioCache.blue, 452, '#3498db', '汞藍');
+            drawLine(stepRatioCache.green, 533, '#2ecc71', '汞綠');
+            drawLine(stepRatioCache.red, 611, '#e74c3c', '銪紅');
+        }
+    };
+
+    function createChartInstance(canvasId, lineColor, yLabelStr, yMaxVal) {
+        let leftWl = wavelengthFormula(getAbsoluteCameraRatio(0.0)); let rightWl = wavelengthFormula(getAbsoluteCameraRatio(1.0));
+        let isRev = isCalibrated && (leftWl > rightWl);
+        let xMin = isCalibrated ? Math.min(leftWl, rightWl) : 0; let xMax = isCalibrated ? Math.max(leftWl, rightWl) : 100;
+        let xLabel = isCalibrated ? '波長 Wavelength (nm)' : '相對比例 (0% - 100%)';
+
+        return new Chart(document.getElementById(canvasId).getContext('2d'), {
+            type: 'line',
+            data: { datasets: [{ data: [], borderColor: lineColor, borderWidth: 2, pointRadius: 0, fill: false, tension: 0.12 }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } }, 
+                layout: { padding: { top: 5, left: 0, right: 10, bottom: 0 } },
+                scales: {
+                    x: { type: 'linear', reverse: isRev, min: xMin, max: xMax, bounds: 'ticks', title: { display: true, text: xLabel, color: '#fff' }, ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+                    y: { type: 'linear', min: yLabelStr.includes('A =') ? 0 : undefined, max: yMaxVal, beginAtZero: true, title: { display: true, text: yLabelStr, color: '#fff' }, ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' } }
+                },
+                animation: { duration: 0 }
+            },
+            plugins: [linePlugin] 
+        });
+    }
+
+    function initAllCharts() {
+        if (chartMain) chartMain.destroy(); if (chartRef) chartRef.destroy(); if (chartSample) chartSample.destroy();
+        chartMain = createChartInstance('chartMain', '#f1c40f', '相對強度 (Counts)', undefined);
+        chartRef = createChartInstance('chartRef', '#3498db', '基準強度 I₀ (Counts)', undefined);
+        let sampleColor = isAbsorbanceMode ? '#e74c3c' : '#1abc9c';
+        let sampleLabel = isAbsorbanceMode ? '吸光度 A = -log(I/I₀)' : '待測樣本強度 I (Counts)';
+        chartSample = createChartInstance('chartSample', sampleColor, sampleLabel, isAbsorbanceMode ? 2.0 : undefined);
+    }
+    function forceReinitChart() { initAllCharts(); }
+
+    // ==========================================
+    // 7. Tab 2 按鈕與匯出
+    // ==========================================
+    function saveReference() {
+        if (!dataRef.intensities.length) { alert("請先啟動攝影機或匯入檔案，取得基準影像！"); return; }
+        // 強制定格
+        if (stateRef === 1) toggleCam('REF');
+        alert("✅ 基準光源 I₀ 儲存成功！");
+    }
+
+    function toggleAbsorbanceMode() {
+        if (dataRef.intensities.length === 0) { alert("請先在上半部點擊『儲存為基準光源』！"); return; }
+        isAbsorbanceMode = !isAbsorbanceMode;
+        const btn = document.getElementById('btn-toggle-abs');
+        if (isAbsorbanceMode) { btn.innerText = "切換圖表：顯示透射強度 (I)"; btn.style.background = "#2ecc71"; } 
+        else { btn.innerText = "切換圖表：顯示吸光度 (A)"; btn.style.background = "#8e44ad"; }
+        forceReinitChart(); processFrame();
+    }
+
+    function exportFinalCSV() {
+        if (!dataRef.intensities.length && !dataSam.intensities.length && !dataTab1.intensities.length) { alert("目前無任何數據！"); return; }
+        
+        let srcLen = dataSam.intensities.length || dataRef.intensities.length || dataTab1.intensities.length;
+        if (!srcLen) return;
+
+        let csvContent = `data:text/csv;charset=utf-8,\uFEFF`;
+        csvContent += `Wavelength(nm),Calib_Fluorescent,Ref_I0,Sample_I,Absorbance_A\n`;
+
+        let chartPointsCount = 300; 
+        for (let i = 0; i < chartPointsCount; i++) {
+            let ratio = i / (chartPointsCount - 1);
+            let srcIdx = Math.floor(ratio * (srcLen - 1)); srcIdx = Math.max(0, srcIdx);
+            
+            let wl = isCalibrated ? wavelengthFormula(getAbsoluteCameraRatio(ratio)) : ratio * 100;
+            let I_cal = dataTab1.intensities[srcIdx] || 0;
+            let I0 = dataRef.intensities[srcIdx] || 0;
+            let I_s = dataSam.intensities[srcIdx] || 0;
+            
+            let A = 0;
+            if (I0 > 0 && I_s > 0) {
+                let tempI = I_s; let tempI0 = I0;
+                if (tempI > tempI0) tempI = tempI0;
+                A = -Math.log10(tempI / tempI0);
+            }
+            csvContent += `${wl.toFixed(2)},${I_cal.toFixed(2)},${I0.toFixed(2)},${I_s.toFixed(2)},${A.toFixed(4)}\n`;
+        }
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", `Spectrum_Final_Report.csv`);
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    }
+
+    window.addEventListener('load', () => {
+        initAllCharts();
+        window.addEventListener('resize', () => { setTimeout(() => { processFrame(); }, 50); });
+    });
+</script>
+</body>
+</html>
