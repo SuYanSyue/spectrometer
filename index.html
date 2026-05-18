@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>線上光譜儀 (光纖獨立快門版)</title>
+    <title>線上光譜儀 (完全體版)</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/regression/2.0.1/regression.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
     <style>
         :root { --primary: #2980b9; --active: #f1c40f; --bg: #0a0a0a; --dark: #000; --panel-bg: #1a1a1a; --box-bg: #252525; --text: #ecf0f1; --border: #333; }
         body { font-family: -apple-system, sans-serif; margin: 0; padding: 0; background: var(--bg); color: var(--text); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
@@ -18,39 +18,46 @@
         #main-workspace { flex-grow: 1; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
         .tab-view-container { flex-grow: 1; display: flex; flex-direction: column; min-height: 0; width: 100%; height: 100%; }
 
-        .top-section { display: grid; grid-template-columns: 350px 1fr; height: 38vh; min-height: 250px; background: var(--bg); border-bottom: 2px solid var(--border); box-sizing: border-box; flex-shrink: 0; }
-        @media (max-width: 900px) { .top-section { grid-template-columns: 1fr; height: auto; } }
-        .control-panel { padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; background: var(--panel-bg); border-right: 1px solid var(--border); }
-        .video-panel { background: #000; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; height: 100%; }
-        video, #canvasVideo { position: absolute; width: 100%; height: 100%; object-fit: contain; }
-        #canvasVideo { z-index: 10; touch-action: none; }
-        .bottom-section { flex-grow: 1; display: flex; flex-direction: column; padding: 15px; box-sizing: border-box; min-height: 0; }
+        .top-section { display: flex; flex: 1 1 0; min-height: 0; background: var(--bg); border-bottom: 2px solid var(--border); box-sizing: border-box; }
+        .control-panel { width: 340px; padding: 12px 15px; display: flex; flex-direction: column; gap: 8px; background: var(--panel-bg); border-right: 1px solid var(--border); flex-shrink: 0; }
+        .video-panel { flex-grow: 1; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; height: 100%; background: #000; }
         
-        #view-tab2 { padding: 15px; gap: 15px; box-sizing: border-box; overflow: hidden; }
+        @media (max-width: 900px) { 
+            .top-section { flex-direction: column; }
+            .control-panel { width: 100%; overflow-y: auto; flex: none; height: auto; }
+            .video-panel { flex: 1 1 0; min-height: 200px; }
+        }
+        
+        .bottom-section { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; padding: 12px 15px; box-sizing: border-box; }
+        
+        #view-tab2 { padding: 12px 15px; gap: 15px; box-sizing: border-box; overflow: hidden; }
         #view-tab2 .chart-card { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 
         .chart-card { background: #000; border-radius: 6px; border: 1px solid var(--border); padding: 10px; display: flex; flex-direction: column; box-shadow: 0 4px 15px rgba(0,0,0,0.8); flex-grow: 1; min-height: 0; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-weight: bold; font-size: 14px; flex-wrap: wrap; gap: 5px; }
+        
         .spectrometer-ui-box { position: relative; width: 100%; display: flex; flex-direction: column; flex-shrink: 0; margin-bottom: 2px; }
         .projection-wrapper { position: relative; width: 100%; height: 38px; background: transparent; overflow: hidden; border-radius: 2px; }
         .proj-canvas { width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }
         .chart-container { flex-grow: 1; position: relative; width: 100%; height: 100%; min-height: 0; }
+        #canvasVideo { position: absolute; width: 100%; height: 100%; object-fit: contain; z-index: 10; touch-action: none; }
 
-        .action-btn { border: none; border-radius: 4px; background: var(--primary); color: white; font-weight: bold; font-size: 13px; padding: 8px 10px; cursor: pointer; transition: 0.1s; text-align: center; white-space: nowrap; }
+        .action-btn { border: none; border-radius: 4px; background: var(--primary); color: white; font-weight: bold; font-size: 13px; padding: 6px 10px; cursor: pointer; transition: 0.1s; text-align: center; white-space: nowrap; }
         .action-btn:active { transform: scale(0.96); }
         .action-btn:disabled { background: #555 !important; color: #888; cursor: not-allowed; transform: none; }
         .action-btn.success { background: #27ae60; color: #fff; }
         .action-btn.warning { background: #f39c12; color: #111; }
         .action-btn.purple { background: #8e44ad; }
-        .action-btn.gray { background: #7f8c8d; }
+        .action-btn.gray { background: #444; color: #bdc3c7; }
         
-        .slider-container-box { background: var(--box-bg); padding: 8px 10px; border-radius: 4px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+        .slider-container-box { background: var(--box-bg); padding: 8px 12px; border-radius: 4px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
         .slider-row { display: flex; align-items: center; gap: 8px; }
-        .slider-row .label-text { font-size: 12px; font-weight: bold; color: #bdc3c7; white-space: nowrap; width: 55px; }
-        .slider-row input[type="range"] { flex-grow: 1; cursor: pointer; margin: 0; accent-color: var(--active); }
-        .slider-row input[type="range"]:disabled { opacity: 0.5; cursor: not-allowed; }
+        .slider-row .label-text { font-size: 12px; font-weight: bold; color: #bdc3c7; white-space: nowrap; width: 50px; }
+        .slider-row input[type="range"] { flex-grow: 1; cursor: pointer; margin: 0; accent-color: var(--active); height: 14px; }
+        .slider-row input[type="range"]:disabled { opacity: 0.3; cursor: not-allowed; }
         .slider-row .val-text { font-size: 12px; font-family: monospace; font-weight: bold; color: var(--active); width: 35px; text-align: right; }
         
-        .calib-status { font-family: monospace; font-size: 12px; font-weight: bold; text-align: center; background: rgba(211, 84, 0, 0.1); color: #e67e22; padding: 8px; border-radius: 4px; border: 1px solid rgba(211, 84, 0, 0.3); margin-top: auto; }
+        .calib-status { font-family: monospace; font-size: 13px; font-weight: bold; text-align: center; background: rgba(211, 84, 0, 0.1); color: #e67e22; border-radius: 4px; border: 1px solid rgba(211, 84, 0, 0.3); }
         .hidden { display: none !important; }
     </style>
 </head>
@@ -59,7 +66,7 @@
 <div class="tabs">
     <div class="tab active" onclick="switchTab(1)" id="tab-1">1. 光纖幾何與波長校正</div>
     <div class="tab" onclick="switchTab(2)" id="tab-2">2. 吸收光譜對照掃描</div>
-    <div class="version-badge">雙態快門版 v25.0</div>
+    <div class="version-badge">完全體版 v37.0</div>
 </div>
 
 <video id="video-global" playsinline muted class="hidden"></video>
@@ -71,12 +78,14 @@
     <div id="view-tab1" class="tab-view-container">
         <div class="top-section">
             <div class="control-panel">
+                
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
                     <button class="action-btn success btn-camera-toggle" id="btn-cam-tab1" onclick="toggleCam('TAB1')">啟動攝影機</button>
                     <button class="action-btn purple" onclick="document.getElementById('file-tab1').click()">📂 匯入檔案</button>
                 </div>
 
                 <div class="slider-container-box">
+                    <div style="font-size: 12px; font-weight: bold; color: #bdc3c7; margin-bottom: 2px;">取樣幾何設定 (Geometry)</div>
                     <div class="slider-row">
                         <span class="label-text">寬度(W)</span>
                         <input type="range" id="roi-xw" min="10" max="100" value="80" oninput="onROISliderChange()">
@@ -87,26 +96,55 @@
                         <input type="range" id="roi-h" min="2" max="120" value="16" oninput="onROISliderChange()">
                         <span class="val-text" id="txt-roi-h">16px</span>
                     </div>
-                </div>
-
-                <div class="slider-container-box" style="padding: 8px 10px;">
-                    <div style="font-size: 11px; font-weight: bold; color: #bdc3c7; margin-bottom: 4px;">取樣矩形旋轉角度 (逆時針)</div>
-                    <div style="display:flex; gap:10px; align-items: center;">
-                        <button class="action-btn" id="btn-rot-90" style="flex:1; background:#444; padding:6px;" onclick="rotate90()">轉 +90°</button>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
+                        <span class="label-text" style="width:auto; font-size:11px;">旋轉角度</span>
                         <div style="display:flex; align-items:center; gap:5px;">
-                            <button class="action-btn warning" id="btn-rot-minus" style="padding: 6px 15px;" onclick="adjustAngle(-1)">-</button>
-                            <span id="txt-angle" style="font-family:monospace; font-size:15px; font-weight:bold; color: #fff; width: 45px; text-align:center;">0°</span>
-                            <button class="action-btn warning" id="btn-rot-plus" style="padding: 6px 15px;" onclick="adjustAngle(1)">+</button>
+                            <button class="action-btn gray" id="btn-rot-90" style="padding:3px 8px; font-size:11px;" onclick="rotate90()">轉 +90°</button>
+                            <button class="action-btn warning" id="btn-rot-minus" style="padding:3px 8px;" onclick="adjustAngle(-1)">-</button>
+                            <span id="txt-angle" style="font-family:monospace; font-size:13px; font-weight:bold; color: #fff; width: 30px; text-align:center;">0°</span>
+                            <button class="action-btn warning" id="btn-rot-plus" style="padding:3px 8px;" onclick="adjustAngle(1)">+</button>
                         </div>
                     </div>
                 </div>
 
-                <button class="action-btn" id="btn-calib-action" style="padding: 12px; font-size: 14px; margin-top: 2px;" onclick="startPeakCalibration()">📍 開始標定特徵波長</button>
-                <div id="calib-status-txt" class="calib-status">未校正狀態</div>
+                <div class="slider-container-box">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size: 12px; font-weight: bold; color: #bdc3c7;">進階濾波處理 (DSP)</span>
+                        <button class="action-btn warning" id="btn-toggle-smooth" style="padding:3px 8px; font-size:11px;" onclick="toggleSmooth()">平滑濾波: 開</button>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+                        <button class="action-btn gray" id="btn-capture-dark" style="padding:5px; font-size:12px;" onclick="captureDarkFrame()">🌑 擷取暗場</button>
+                        <button class="action-btn gray" id="btn-toggle-dark" style="padding:5px; font-size:12px;" onclick="toggleDarkSub()">扣除背景: 關</button>
+                    </div>
+                </div>
+
+                <div class="slider-container-box">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                        <span style="font-size: 12px; font-weight: bold; color: #bdc3c7;">特徵波峰追蹤引擎</span>
+                        <button class="action-btn warning" id="btn-toggle-snap" style="padding:3px 8px; font-size:11px;" onclick="toggleSnapPeak()">🧲 磁吸對位: 開</button>
+                    </div>
+                    <button class="action-btn gray" id="btn-toggle-radar" style="padding:4px; font-size:11px; margin-bottom:2px;" onclick="toggleAutoPeakRadar()">📡 尋峰雷達標籤: 關</button>
+                    <div class="slider-row">
+                        <span class="label-text">高度閾值</span>
+                        <input type="range" id="peak-th" min="5" max="95" value="15" oninput="onPeakSettingsChange()" disabled>
+                        <span class="val-text" id="txt-peak-th" style="color: #7f8c8d;">15%</span>
+                    </div>
+                    <div class="slider-row">
+                        <span class="label-text">掃描寬度</span>
+                        <input type="range" id="peak-win" min="1" max="50" value="20" oninput="onPeakSettingsChange()" disabled>
+                        <span class="val-text" id="txt-peak-win" style="color: #7f8c8d;">20</span>
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:8px; margin-top: auto; height: 38px; align-items: stretch;">
+                    <button class="action-btn" id="btn-calib-action" style="flex:1; font-size: 14px;" onclick="startPeakCalibration()">📍 開始標定特徵波長</button>
+                    <div id="calib-status-txt" class="calib-status" style="flex:1; display:flex; align-items:center; justify-content:center; margin:0;">未校正</div>
+                </div>
             </div>
             
             <div class="video-panel">
                 <canvas id="canvasVideo"></canvas>
+                <button id="btn-video-fit" style="position:absolute; top:12px; right:12px; z-index:20; background:rgba(0,0,0,0.6); color:#fff; border:1px solid #444; border-radius:4px; padding:6px 10px; font-size:12px; cursor:pointer;" onclick="toggleVideoFit()">🔍 填滿畫面</button>
             </div>
         </div>
 
@@ -128,10 +166,10 @@
         <div class="chart-card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                 <span style="color: #3498db; font-size: 15px; font-weight:bold;">基準對照光源 (I₀)</span>
-                <div style="display:flex; gap:10px;">
-                    <button class="action-btn success" id="btn-cam-ref" style="width:120px;" onclick="toggleCam('REF')">啟動攝影機</button>
-                    <button class="action-btn purple" style="width:100px;" onclick="document.getElementById('file-ref').click()">📂 匯入檔案</button>
-                    <button class="action-btn" id="btn-save-ref" style="width:180px; background:#2980b9;" onclick="saveReference()">✅ 儲存為基準光源</button>
+                <div style="display:flex; gap:8px;">
+                    <button class="action-btn success btn-camera-toggle" id="btn-cam-ref" style="width:110px;" onclick="toggleCam('REF')">啟動攝影機</button>
+                    <button class="action-btn purple" style="width:90px;" onclick="document.getElementById('file-ref').click()">📂 匯入</button>
+                    <button class="action-btn" id="btn-save-ref" style="width:160px; background:#2980b9;" onclick="saveReference()">✅ 儲存為基準光源</button>
                 </div>
             </div>
             <div class="spectrometer-ui-box">
@@ -144,12 +182,12 @@
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                 <span style="color: #e74c3c; font-size: 15px; font-weight:bold;">待測樣本掃描 (Sample)</span>
                 <div style="display:flex; flex-grow:1; justify-content:space-between;">
-                    <div style="display:flex; gap:10px; margin-left: auto;">
-                        <button class="action-btn success" id="btn-cam-sam" style="width:120px;" onclick="toggleCam('SAM')">啟動攝影機</button>
-                        <button class="action-btn purple" style="width:100px;" onclick="document.getElementById('file-sam').click()">📂 匯入檔案</button>
-                        <button class="action-btn purple" id="btn-toggle-abs" style="width:180px;" onclick="toggleAbsorbanceMode()">切換：顯示吸光度 (A)</button>
+                    <div style="display:flex; gap:8px; margin-left: auto;">
+                        <button class="action-btn success btn-camera-toggle" id="btn-cam-sam" style="width:110px;" onclick="toggleCam('SAM')">啟動攝影機</button>
+                        <button class="action-btn purple" style="width:90px;" onclick="document.getElementById('file-sam').click()">📂 匯入</button>
+                        <button class="action-btn purple" id="btn-toggle-abs" style="width:160px;" onclick="toggleAbsorbanceMode()">切換：顯示吸光度 (A)</button>
                     </div>
-                    <button class="action-btn" style="background:#2ecc71; color:#000; margin-left:15px; width:120px;" onclick="exportFinalCSV()">📥 匯出 CSV</button>
+                    <button class="action-btn" style="background:#2ecc71; color:#000; margin-left:12px; width:110px;" onclick="exportFinalCSV()">📥 匯出 CSV</button>
                 </div>
             </div>
             <div class="spectrometer-ui-box">
@@ -162,6 +200,8 @@
 </div>
 
 <script>
+    Chart.register(window['chartjs-plugin-annotation']);
+
     const video = document.getElementById('video-global');
     const canvasV = document.getElementById('canvasVideo');
     const ctxV = canvasV.getContext('2d');
@@ -174,32 +214,141 @@
     let isCameraGlobalActive = false;
     let currentTab = 1;
 
-    // ROI 幾何變數
     let roiCXPer = 0.5; let roiCYPer = 0.5; let roiXWPer = 0.8; let roiH = 16; let roiAngle = 0; 
     let isDragging = false; let dragMode = "NONE"; let dragStartPos = { x: 0, y: 0 };
     let startRoiCX = 0.5; let startRoiCY = 0.5; let startRoiXW = 0.8;
 
-    // 校正模型
     let isCalibrating = false; let calibStep = 0; let calibPoints = []; let isCalibrated = false;
     let wavelengthFormula = (r) => 400 + r * 300; 
     let stepRatioCache = { blue: null, green: null, red: null };
     let isLoupeActive = false; let loupePos = { x: 0, y: 0 }; 
 
-    // 圖表實例
-    let chartMain = null; let chartRef = null; let chartSample = null;
+    let isAutoPeakSnapEnabled = true;
+    let isRadarEnabled = false;
+    let peakThresholdRatio = 0.15; 
+    let peakWindowRatio = 0.020; // 掃描寬度預設 2.0%
+
+    let isSmoothingEnabled = true;
+    let isDarkSubEnabled = false;
+    let isCapturingDark = false;
+    let darkCaptureCount = 0;
+    let darkCaptureBuffer = [];
+    let darkIntensities = []; 
     
-    // 快門狀態機 (0: 停止/靜態, 1: Live視訊中) -> 雙態模式
+    let isVideoCover = false;
+
+    let chartMain = null; let chartRef = null; let chartSample = null;
     let stateTab1 = 0; let stateRef = 0; let stateSam = 0;
 
     let dataTab1 = { intensities: [], colors: [], img: null, offCanvas: document.createElement('canvas') };
     let dataRef  = { intensities: [], colors: [], img: null, offCanvas: document.createElement('canvas') };
     let dataSam  = { intensities: [], colors: [], img: null, offCanvas: document.createElement('canvas') };
-    
     let isAbsorbanceMode = false;
 
-    // ==========================================
-    // 1. 雙態快門狀態機與影像擷取核心
-    // ==========================================
+    function toggleVideoFit() {
+        isVideoCover = !isVideoCover;
+        const btn = document.getElementById('btn-video-fit');
+        if(isVideoCover) {
+            canvasV.style.objectFit = 'cover';
+            btn.innerText = "🔍 顯示原比例"; btn.style.background = "var(--primary)";
+        } else {
+            canvasV.style.objectFit = 'contain';
+            btn.innerText = "🔍 填滿畫面"; btn.style.background = "rgba(0,0,0,0.6)";
+        }
+    }
+
+    function getCanvasMapPos(e) {
+        const rect = canvasV.getBoundingClientRect();
+        const cw = rect.width, ch = rect.height;
+        const iw = canvasV.width, ih = canvasV.height;
+        if(!iw || !ih) return {x: 0, y: 0};
+        
+        const aC = cw / ch, aI = iw / ih;
+        let rW, rH, oX = 0, oY = 0;
+        
+        if (isVideoCover) {
+            if (aC > aI) { rW = cw; rH = cw / aI; oY = (ch - rH)/2; }
+            else { rH = ch; rW = ch * aI; oX = (cw - rW)/2; }
+        } else {
+            if (aC > aI) { rH = ch; rW = ch * aI; oX = (cw - rW)/2; }
+            else { rW = cw; rH = cw / aI; oY = (ch - rH)/2; }
+        }
+        
+        return {
+            x: (e.clientX - rect.left - oX) * (iw / rW),
+            y: (e.clientY - rect.top - oY) * (ih / rH)
+        };
+    }
+
+    function solveParabola(p1, p2, p3) {
+        let x1 = p1[0], y1 = p1[1], x2 = p2[0], y2 = p2[1], x3 = p3[0], y3 = p3[1];
+        let denom = (x1 - x2) * (x1 - x3) * (x2 - x3);
+        if (Math.abs(denom) < 1e-12) return null; 
+        let a = (x3 * (y2 - y1) + x2 * (y1 - y3) + x1 * (y3 - y2)) / denom;
+        let b = (x3*x3 * (y1 - y2) + x2*x2 * (y3 - y1) + x1*x1 * (y2 - y3)) / denom;
+        let c = (x2 * x3 * (x2 - x3) * y1 + x3 * x1 * (x3 - x1) * y2 + x1 * x2 * (x1 - x2) * y3) / denom;
+        return [a, b, c];
+    }
+
+    function toggleSnapPeak() {
+        isAutoPeakSnapEnabled = !isAutoPeakSnapEnabled;
+        const btn = document.getElementById('btn-toggle-snap');
+        if(isAutoPeakSnapEnabled) { btn.innerText = "🧲 磁吸對位: 開"; btn.className = "action-btn warning"; } 
+        else { btn.innerText = "🧲 磁吸對位: 關"; btn.className = "action-btn gray"; }
+    }
+
+    function toggleAutoPeakRadar() {
+        isRadarEnabled = !isRadarEnabled;
+        const btn = document.getElementById('btn-toggle-radar');
+        const sliderTh = document.getElementById('peak-th');
+        const sliderWin = document.getElementById('peak-win');
+        const txtTh = document.getElementById('txt-peak-th');
+        const txtWin = document.getElementById('txt-peak-win');
+        
+        if(isRadarEnabled) {
+            btn.innerText = "📡 雷達標籤: 開"; btn.className = "action-btn warning";
+            sliderTh.disabled = false; txtTh.style.color = "var(--active)";
+            sliderWin.disabled = false; txtWin.style.color = "var(--active)";
+        } else {
+            btn.innerText = "📡 雷達標籤: 關"; btn.className = "action-btn gray";
+            sliderTh.disabled = true; txtTh.style.color = "#7f8c8d";
+            sliderWin.disabled = true; txtWin.style.color = "#7f8c8d";
+        }
+        processFrame();
+    }
+
+    function onPeakSettingsChange() {
+        peakThresholdRatio = parseInt(document.getElementById('peak-th').value) / 100;
+        peakWindowRatio = parseInt(document.getElementById('peak-win').value) / 1000;
+        document.getElementById('txt-peak-th').innerText = (peakThresholdRatio * 100).toFixed(0) + "%";
+        document.getElementById('txt-peak-win').innerText = document.getElementById('peak-win').value;
+        processFrame();
+    }
+
+    function toggleSmooth() {
+        isSmoothingEnabled = !isSmoothingEnabled;
+        const btn = document.getElementById('btn-toggle-smooth');
+        if(isSmoothingEnabled) { btn.innerText = "平滑濾波: 開"; btn.className = "action-btn warning"; } 
+        else { btn.innerText = "平滑濾波: 關"; btn.className = "action-btn gray"; }
+        processFrame();
+    }
+
+    function toggleDarkSub() {
+        if(darkIntensities.length === 0) { alert("請先遮蓋光源，點擊『擷取暗場』！"); return; }
+        isDarkSubEnabled = !isDarkSubEnabled;
+        const btn = document.getElementById('btn-toggle-dark');
+        if(isDarkSubEnabled) { btn.innerText = "扣除背景: 開"; btn.className = "action-btn warning"; } 
+        else { btn.innerText = "扣除背景: 關"; btn.className = "action-btn gray"; }
+        processFrame();
+    }
+
+    function captureDarkFrame() {
+        if (!isCameraGlobalActive && stateTab1 !== 1) { alert("請先啟動攝影機並完全遮蔽光源！"); return; }
+        isCapturingDark = true; darkCaptureCount = 0; darkCaptureBuffer = [];
+        const btn = document.getElementById('btn-capture-dark');
+        btn.innerText = "擷取中...請遮光"; btn.className = "action-btn warning";
+    }
+
     function startGlobalCamera() {
         if (isCameraGlobalActive) return;
         navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 3840 }, height: { ideal: 2160 } } })
@@ -218,20 +367,14 @@
 
     function updateCamBtnUI(btnId, state) {
         const btn = document.getElementById(btnId);
-        if(state === 1) { 
-            btn.innerText = "📸 拍照定格"; 
-            btn.className = "action-btn warning btn-camera-toggle"; 
-        } else { 
-            btn.innerText = "啟動攝影機"; 
-            btn.className = "action-btn success btn-camera-toggle"; 
-        }
+        if(state === 1) { btn.innerText = "📸 拍照定格"; btn.className = "action-btn warning btn-camera-toggle"; } 
+        else { btn.innerText = "啟動攝影機"; btn.className = "action-btn success btn-camera-toggle"; }
     }
 
-    // 核心優化：雙態邏輯 (啟動 <-> 拍照定格)
     function toggleCam(zone) {
         if(zone === 'TAB1') {
-            if(stateTab1 === 1) { stateTab1 = 0; freezeZone('TAB1'); } // 拍照並切換回狀態0
-            else { startGlobalCamera(); stateTab1 = 1; dataTab1.img = null; } // 清空照片，啟動相機
+            if(stateTab1 === 1) { stateTab1 = 0; freezeZone('TAB1'); } 
+            else { startGlobalCamera(); stateTab1 = 1; dataTab1.img = null; } 
             updateCamBtnUI('btn-cam-tab1', stateTab1);
         } else if(zone === 'REF') {
             if(stateRef === 1) { stateRef = 0; freezeZone('REF'); }
@@ -242,8 +385,7 @@
             else { startGlobalCamera(); stateSam = 1; dataSam.img = null; }
             updateCamBtnUI('btn-cam-sam', stateSam);
         }
-        checkAndStopGlobalCamera();
-        processFrame(); 
+        checkAndStopGlobalCamera(); processFrame(); 
     }
 
     function freezeZone(zone) {
@@ -264,19 +406,14 @@
         let img = new Image();
         img.onload = () => {
             canvasV.width = img.width; canvasV.height = img.height; 
-            // 匯入檔案視為靜態照片，按鈕回歸「啟動相機」狀態 (0)
             if(zone === 'TAB1') { stateTab1 = 0; dataTab1.img = img; updateCamBtnUI('btn-cam-tab1', stateTab1); }
             else if(zone === 'REF') { stateRef = 0; dataRef.img = img; updateCamBtnUI('btn-cam-ref', stateRef); }
             else if(zone === 'SAM') { stateSam = 0; dataSam.img = img; updateCamBtnUI('btn-cam-sam', stateSam); }
-            checkAndStopGlobalCamera();
-            processFrame();
+            checkAndStopGlobalCamera(); processFrame();
         };
         img.src = url;
     }
 
-    // ==========================================
-    // 2. 獨立光學資料萃取引擎
-    // ==========================================
     function extractSpectrumData(sourceObj, targetOffCanvas) {
         if (!canvasV.width) return null;
         let rw = Math.max(1, roiXWPer * canvasV.width); let rh = Math.max(1, roiH);
@@ -289,9 +426,7 @@
         oCtx.drawImage(sourceObj, 0, 0, canvasV.width, canvasV.height);
 
         const roiData = oCtx.getImageData(0, 0, rw, rh).data;
-        let wInt = Math.floor(rw);
-        let intensities = new Array(wInt).fill(0);
-        let colors = new Array(wInt);
+        let wInt = Math.floor(rw); let intensities = new Array(wInt).fill(0); let colors = new Array(wInt);
 
         for (let x = 0; x < wInt; x++) {
             let sumI = 0, sumR = 0, sumG = 0, sumB = 0;
@@ -306,15 +441,10 @@
         return { intensities, colors };
     }
 
-    // ==========================================
-    // 3. 全局循環渲染器
-    // ==========================================
     function startRenderLoop() {
         if (loopId) cancelAnimationFrame(loopId);
         function frame() {
-            if (isCameraGlobalActive && video.readyState >= video.HAVE_ENOUGH_DATA) {
-                processFrame();
-            }
+            if (isCameraGlobalActive && video.readyState >= video.HAVE_ENOUGH_DATA) processFrame();
             loopId = requestAnimationFrame(frame);
         }
         frame();
@@ -323,13 +453,26 @@
     function processFrame() {
         if(!canvasV.width) return;
 
-        // 獨立資料擷取與快取更新
-        if(stateTab1 === 1 && isCameraGlobalActive) {
-            let ext = extractSpectrumData(video, dataTab1.offCanvas);
-            if(ext) { dataTab1.intensities = ext.intensities; dataTab1.colors = ext.colors; }
-        } else if(stateTab1 === 0 && dataTab1.img) {
-            let ext = extractSpectrumData(dataTab1.img, dataTab1.offCanvas);
-            if(ext) { dataTab1.intensities = ext.intensities; dataTab1.colors = ext.colors; }
+        let currentExtTab1 = null;
+        if(stateTab1 === 1 && isCameraGlobalActive) currentExtTab1 = extractSpectrumData(video, dataTab1.offCanvas);
+        else if(stateTab1 === 0 && dataTab1.img) currentExtTab1 = extractSpectrumData(dataTab1.img, dataTab1.offCanvas);
+        
+        if(currentExtTab1) {
+            dataTab1.intensities = currentExtTab1.intensities; dataTab1.colors = currentExtTab1.colors;
+            if (isCapturingDark) {
+                let wInt = dataTab1.intensities.length;
+                if (darkCaptureBuffer.length === 0) darkCaptureBuffer = new Array(wInt).fill(0);
+                for (let i = 0; i < wInt; i++) darkCaptureBuffer[i] += dataTab1.intensities[i];
+                darkCaptureCount++;
+                if (darkCaptureCount >= 30) {
+                    isCapturingDark = false;
+                    darkIntensities = darkCaptureBuffer.map(val => val / 30);
+                    const btn = document.getElementById('btn-capture-dark');
+                    btn.innerText = "🌑 重新擷取暗場"; btn.className = "action-btn gray";
+                    alert("暗場擷取完成 (平均30幀)！");
+                    if(!isDarkSubEnabled) toggleDarkSub(); 
+                }
+            }
         } else if(stateTab1 === 0 && !dataTab1.img) { dataTab1.intensities = []; dataTab1.colors = []; }
         
         if(stateRef === 1 && isCameraGlobalActive) {
@@ -348,13 +491,11 @@
             if(ext) { dataSam.intensities = ext.intensities; dataSam.colors = ext.colors; }
         } else if(stateSam === 0 && !dataSam.img) { dataSam.intensities = []; dataSam.colors = []; }
 
-        // UI 渲染分發
         if (currentTab === 1) {
             ctxV.clearRect(0, 0, canvasV.width, canvasV.height);
             if(stateTab1 === 1) ctxV.drawImage(video, 0, 0, canvasV.width, canvasV.height);
             else if(stateTab1 === 0 && dataTab1.img) ctxV.drawImage(dataTab1.img, 0, 0, canvasV.width, canvasV.height);
 
-            // 有照片或視訊時畫幾何框
             if(stateTab1 === 1 || dataTab1.img) {
                 let rw = Math.max(1, roiXWPer * canvasV.width); let rh = Math.max(1, roiH);
                 let cx = roiCXPer * canvasV.width; let cy = roiCYPer * canvasV.height;
@@ -372,7 +513,7 @@
                 updateChartData(chartMain, dataTab1.intensities);
             } else {
                 canvasPMain.getContext('2d').clearRect(0, 0, canvasPMain.width, canvasPMain.height);
-                if(chartMain) { chartMain.data.datasets[0].data = []; chartMain.update('none'); }
+                if(chartMain) { chartMain.data.datasets[0].data = []; chartMain.options.plugins.annotation.annotations = {}; chartMain.update('none'); }
             }
         } 
         else if (currentTab === 2) {
@@ -381,7 +522,7 @@
                 updateChartData(chartRef, dataRef.intensities);
             } else {
                 canvasPRef.getContext('2d').clearRect(0, 0, canvasPRef.width, canvasPRef.height);
-                if(chartRef) { chartRef.data.datasets[0].data = []; chartRef.update('none'); }
+                if(chartRef) { chartRef.data.datasets[0].data = []; chartRef.options.plugins.annotation.annotations = {}; chartRef.update('none'); }
             }
 
             if(dataSam.intensities.length > 0) {
@@ -389,14 +530,11 @@
                 updateChartData(chartSample, dataSam.intensities, isAbsorbanceMode ? dataRef.intensities : null);
             } else {
                 canvasPSample.getContext('2d').clearRect(0, 0, canvasPSample.width, canvasPSample.height);
-                if(chartSample) { chartSample.data.datasets[0].data = []; chartSample.update('none'); }
+                if(chartSample) { chartSample.data.datasets[0].data = []; chartSample.options.plugins.annotation.annotations = {}; chartSample.update('none'); }
             }
         }
     }
 
-    // ==========================================
-    // 4. GUI 控制項與拖曳
-    // ==========================================
     function switchTab(step) {
         currentTab = step;
         document.getElementById('tab-1').className = step === 1 ? 'tab active' : 'tab';
@@ -411,10 +549,8 @@
     }
 
     function lockROIControls(locked) {
-        document.getElementById('roi-xw').disabled = locked;
-        document.getElementById('roi-h').disabled = locked;
-        document.getElementById('btn-rot-90').disabled = locked;
-        document.getElementById('btn-rot-minus').disabled = locked;
+        document.getElementById('roi-xw').disabled = locked; document.getElementById('roi-h').disabled = locked;
+        document.getElementById('btn-rot-90').disabled = locked; document.getElementById('btn-rot-minus').disabled = locked;
         document.getElementById('btn-rot-plus').disabled = locked;
     }
 
@@ -429,13 +565,12 @@
         processFrame();
     }
 
-    // 視訊拖曳 (Tab1)
     canvasV.addEventListener('pointerdown', (e) => {
         if (!canvasV.width || isCalibrating || currentTab !== 1 || (!dataTab1.img && stateTab1 === 0)) return; 
         canvasV.setPointerCapture(e.pointerId);
-        const rect = canvasV.getBoundingClientRect();
-        const mouseX = (e.clientX - rect.left) * (canvasV.width / rect.width);
-        const mouseY = (e.clientY - rect.top) * (canvasV.height / rect.height);
+        
+        const pos = getCanvasMapPos(e);
+        const mouseX = pos.x; const mouseY = pos.y;
         
         let cx = roiCXPer * canvasV.width; let cy = roiCYPer * canvasV.height;
         let rw = roiXWPer * canvasV.width; let angleRad = -roiAngle * Math.PI / 180; 
@@ -452,15 +587,14 @@
             dragMode = "MOVE";
         }
         isDragging = true; dragStartPos = { x: mouseX, y: mouseY, localX: localX }; 
-        startRoiCX = roiCXPer; startRoiCY = roiCYPer; startRoiXW = roiXWPer;
-        processFrame();
+        startRoiCX = roiCXPer; startRoiCY = roiCYPer; startRoiXW = roiXWPer; processFrame();
     });
 
     canvasV.addEventListener('pointermove', (e) => {
         if (!isDragging || !canvasV.width || isCalibrating || currentTab !== 1) return;
-        const rect = canvasV.getBoundingClientRect();
-        const mouseX = (e.clientX - rect.left) * (canvasV.width / rect.width);
-        const mouseY = (e.clientY - rect.top) * (canvasV.height / rect.height);
+        
+        const pos = getCanvasMapPos(e);
+        const mouseX = pos.x; const mouseY = pos.y;
         
         if (dragMode === "MOVE") {
             let deltaXPer = (mouseX - dragStartPos.x) / canvasV.width; let deltaYPer = (mouseY - dragStartPos.y) / canvasV.height;
@@ -479,9 +613,6 @@
     });
     canvasV.addEventListener('pointerup', (e) => { canvasV.releasePointerCapture(e.pointerId); isDragging = false; dragMode = "NONE"; });
 
-    // ==========================================
-    // 5. 標定引擎 (在 Tab1 操作)
-    // ==========================================
     canvasPMain.addEventListener('pointerdown', (e) => {
         if (!dataTab1.intensities.length || !isCalibrating || currentTab !== 1) return;
         canvasPMain.setPointerCapture(e.pointerId); isLoupeActive = true; updateLoupeCoordinate(e);
@@ -516,6 +647,28 @@
         }
     }
 
+    function snapToNearestPeak(clickedAbsRatio) {
+        let intensities = dataTab1.intensities;
+        if (!intensities || intensities.length === 0) return clickedAbsRatio;
+
+        let r0 = getAbsoluteCameraRatio(0.0); let r1 = getAbsoluteCameraRatio(1.0);
+        let subRatio = (clickedAbsRatio - r0) / (r1 - r0);
+        let centerIdx = Math.floor(subRatio * (intensities.length - 1));
+        
+        let searchRadius = Math.floor(intensities.length * 0.08); 
+        let startIdx = Math.max(0, centerIdx - searchRadius);
+        let endIdx = Math.min(intensities.length - 1, centerIdx + searchRadius);
+        
+        let maxI = -Infinity; let bestIdx = centerIdx;
+        
+        for(let i = startIdx; i <= endIdx; i++) {
+            let val = intensities[i];
+            if(i > 0 && i < intensities.length - 1) { val = (intensities[i-1] + intensities[i]*2 + intensities[i+1]) / 4; }
+            if(val > maxI) { maxI = val; bestIdx = i; }
+        }
+        return getAbsoluteCameraRatio(bestIdx / (intensities.length - 1));
+    }
+
     function getAbsoluteCameraRatio(ratio) {
         let angleRad = -roiAngle * Math.PI / 180; 
         let cx = roiCXPer * canvasV.width; let cy = roiCYPer * canvasV.height; let rw = roiXWPer * canvasV.width;
@@ -546,29 +699,32 @@
 
     function saveCalibPoint() {
         if(!chartMain) return;
-        let absoluteCameraRatio = getAbsoluteCameraRatioFromPixel(loupePos.x, chartMain);
+        let clickedCameraRatio = getAbsoluteCameraRatioFromPixel(loupePos.x, chartMain);
+        let finalCameraRatio = clickedCameraRatio;
+        if (isAutoPeakSnapEnabled) finalCameraRatio = snapToNearestPeak(clickedCameraRatio);
+        
         let targetWl = (calibStep === 1) ? 452 : (calibStep === 2) ? 533 : 611;
-        calibPoints.push([absoluteCameraRatio, targetWl]);
+        calibPoints.push([finalCameraRatio, targetWl]);
 
-        if (calibStep === 1) stepRatioCache.blue = absoluteCameraRatio;
-        else if (calibStep === 2) stepRatioCache.green = absoluteCameraRatio;
-        else if (calibStep === 3) stepRatioCache.red = absoluteCameraRatio;
+        if (calibStep === 1) stepRatioCache.blue = finalCameraRatio;
+        else if (calibStep === 2) stepRatioCache.green = finalCameraRatio;
+        else if (calibStep === 3) stepRatioCache.red = finalCameraRatio;
 
         forceReinitChart();
 
         if (calibStep < 3) {
-            calibStep++; document.getElementById('calib-status-txt').innerHTML = `<span style='color:#f1c40f;'>🎯 標定下一波峰...</span>`;
+            calibStep++; document.getElementById('calib-status-txt').innerHTML = `請標定下一特徵波峰`; document.getElementById('calib-status-txt').style.color = '#f1c40f';
             processFrame();
         } else {
             isCalibrating = false; lockROIControls(false);
-            try {
-                const res = regression.polynomial(calibPoints, { order: 2 });
-                wavelengthFormula = (r) => res.equation[0]*r*r + res.equation[1]*r + res.equation[2];
-                document.getElementById('calib-status-txt').innerHTML = `✅ 標定成功 (二階)<br><span style="color:#2ecc71;">R² = ${Math.min(1, res.r2||1).toFixed(5)}</span>`;
-            } catch(err) {
+            let coeffs = solveParabola(calibPoints[0], calibPoints[1], calibPoints[2]);
+            if (coeffs) {
+                wavelengthFormula = (r) => coeffs[0]*r*r + coeffs[1]*r + coeffs[2];
+                document.getElementById('calib-status-txt').innerHTML = `✅ 絕對對齊`; document.getElementById('calib-status-txt').style.color = '#2ecc71';
+            } else {
                 const res = regression.linear(calibPoints);
                 wavelengthFormula = (r) => res.equation[0]*r + res.equation[1];
-                document.getElementById('calib-status-txt').innerHTML = `✅ 標定成功 (線性)`;
+                document.getElementById('calib-status-txt').innerHTML = `✅ 線性退化`; document.getElementById('calib-status-txt').style.color = '#e67e22';
             }
             isCalibrated = true; document.getElementById('btn-calib-action').innerText = "📍 重新標定"; 
             forceReinitChart(); processFrame();
@@ -577,18 +733,13 @@
 
     function startPeakCalibration() {
         if(!dataTab1.intensities.length) { alert("請先啟動影像或匯入圖片！"); return; }
-        // 進入標定時，強制凍結相機，防止抖動
         if (stateTab1 === 1) toggleCam('TAB1'); 
-        
         lockROIControls(true); calibStep = 1; calibPoints = []; isCalibrated = false; isCalibrating = true;
         stepRatioCache = { blue: null, green: null, red: null }; wavelengthFormula = (r) => 400 + r * 300; 
-        document.getElementById('calib-status-txt').innerHTML = "<span style='color:#3498db;'>🎯 標定 452nm (藍)</span>";
+        document.getElementById('calib-status-txt').innerHTML = `請標定 452nm (藍)`; document.getElementById('calib-status-txt').style.color = '#3498db';
         forceReinitChart(); processFrame();
     }
 
-    // ==========================================
-    // 6. 圖表映射與渲染模組
-    // ==========================================
     function renderRealImageProjection(targetCanvas, targetChart, sourceCanvas, sourceColors) {
         const ctx = targetCanvas.getContext('2d');
         if (!sourceCanvas || sourceCanvas.width === 0 || !targetChart) {
@@ -599,7 +750,7 @@
         const gridLeftPx = xAxis.left; const gridRightPx = xAxis.right; const gridWidthPx = gridRightPx - gridLeftPx;
 
         let containerWidth = targetCanvas.parentElement.clientWidth;
-        if (targetCanvas.width !== containerWidth) { targetCanvas.width = containerWidth; targetCanvas.height = 36; }
+        if (targetCanvas.width !== containerWidth) { targetCanvas.width = containerWidth; targetCanvas.height = 38; }
         ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
 
         if (gridWidthPx > 0) {
@@ -622,31 +773,92 @@
         if (isLoupeActive && targetCanvas.id === 'canvasProjMain') drawProjectionLoupe(ctx, targetCanvas, targetChart, sourceCanvas, sourceColors);
     }
 
+    // 🌟 導入動態掃描寬度 (峰值解析度控制)
     function updateChartData(targetChart, intensities, referenceForAbsorbance = null) {
-        if (!targetChart || intensities.length === 0) return;
-        let chartPointsCount = 200; let finalChartData = []; let srcLen = intensities.length;
+        if (!targetChart) return;
+        if (intensities.length === 0) {
+            targetChart.data.datasets[0].data = []; targetChart.options.plugins.annotation.annotations = {}; targetChart.update('none'); return;
+        }
 
-        let leftWl = wavelengthFormula(getAbsoluteCameraRatio(0.0));
-        let rightWl = wavelengthFormula(getAbsoluteCameraRatio(1.0));
+        let srcLen = intensities.length; let finalChartData = [];
+        let leftWl = wavelengthFormula(getAbsoluteCameraRatio(0.0)); let rightWl = wavelengthFormula(getAbsoluteCameraRatio(1.0));
 
         if (isCalibrated) {
             if (leftWl > rightWl) { targetChart.options.scales.x.min = rightWl; targetChart.options.scales.x.max = leftWl; targetChart.options.scales.x.reverse = true; } 
             else { targetChart.options.scales.x.min = leftWl; targetChart.options.scales.x.max = rightWl; targetChart.options.scales.x.reverse = false; }
         } else { targetChart.options.scales.x.min = 0; targetChart.options.scales.x.max = 100; targetChart.options.scales.x.reverse = false; }
 
-        for (let i = 0; i < chartPointsCount; i++) {
-            let ratio = i / (chartPointsCount - 1);
-            let srcIdx = Math.floor(ratio * (srcLen - 1)); srcIdx = Math.max(0, srcIdx);
-            let xValue = isCalibrated ? wavelengthFormula(getAbsoluteCameraRatio(ratio)) : ratio * 100;
-            let I = intensities[srcIdx] || 0;
+        let processedI = new Array(srcLen);
+        let processedRef = referenceForAbsorbance ? new Array(srcLen) : null;
 
-            if (referenceForAbsorbance && referenceForAbsorbance.length > 0) {
-                let I0 = referenceForAbsorbance[srcIdx] || 255;
-                if (I <= 0) I = 0.1; if (I0 <= 0) I0 = 255; if (I > I0) I = I0;
-                let A = -Math.log10(I / I0); finalChartData.push({ x: xValue, y: A });
+        for(let i=0; i<srcLen; i++) {
+            let darkVal = (isDarkSubEnabled && darkIntensities[i]) ? darkIntensities[i] : 0;
+            processedI[i] = Math.max(0, intensities[i] - darkVal);
+            if(processedRef) processedRef[i] = Math.max(0.1, referenceForAbsorbance[i] - darkVal); 
+        }
+
+        if (isSmoothingEnabled) {
+            let tempI = [...processedI]; let tempRef = processedRef ? [...processedRef] : null;
+            for(let i=2; i<srcLen-2; i++) {
+                processedI[i] = (tempI[i-2] + tempI[i-1]*2 + tempI[i]*3 + tempI[i+1]*2 + tempI[i+2]) / 9;
+                if(processedRef) processedRef[i] = (tempRef[i-2] + tempRef[i-1]*2 + tempRef[i]*3 + tempRef[i+1]*2 + tempRef[i+2]) / 9;
+            }
+        }
+
+        for (let i = 0; i < srcLen; i++) {
+            let ratio = i / (srcLen - 1);
+            let xValue = isCalibrated ? wavelengthFormula(getAbsoluteCameraRatio(ratio)) : ratio * 100;
+            let I = processedI[i] || 0;
+
+            if (processedRef) {
+                let I0 = processedRef[i] || 255;
+                if (I0 > 0 && I > 0) {
+                    let A = -Math.log10(Math.min(I, I0) / I0);
+                    finalChartData.push({ x: xValue, y: A });
+                } else { finalChartData.push({ x: xValue, y: 0 }); }
             } else { finalChartData.push({ x: xValue, y: I }); }
         }
-        targetChart.data.datasets[0].data = finalChartData; targetChart.update('none'); 
+        targetChart.data.datasets[0].data = finalChartData; 
+
+        let annotations = {};
+        if (isRadarEnabled && finalChartData.length > 0) {
+            let maxY = Math.max(...finalChartData.map(d => d.y));
+            let absThreshold = maxY * peakThresholdRatio; 
+            
+            // 💡 動態掃描寬度：透過拉桿決定解析相近雙峰的能力
+            let windowSize = Math.max(1, Math.floor(srcLen * peakWindowRatio)); 
+
+            let peakCount = 0;
+            for (let i = windowSize; i < finalChartData.length - windowSize; i++) {
+                let current = finalChartData[i];
+                if (current.y < absThreshold) continue;
+
+                let isPeak = true;
+                for (let j = 1; j <= windowSize; j++) {
+                    if (current.y <= finalChartData[i-j].y || current.y <= finalChartData[i+j].y) {
+                        isPeak = false; break;
+                    }
+                }
+
+                if (isPeak) {
+                    annotations[`peak${peakCount}`] = {
+                        type: 'line', xMin: current.x, xMax: current.x,
+                        borderColor: 'rgba(241, 196, 15, 0.5)', borderWidth: 1.5, borderDash: [3, 3],
+                        label: {
+                            display: true, content: `${current.x.toFixed(1)} nm`, position: 'start',
+                            backgroundColor: 'rgba(0,0,0,0.85)', color: '#f1c40f',
+                            font: { size: 10, family: 'monospace', weight: 'bold' },
+                            yAdjust: (peakCount % 2 === 0) ? -25 : -45 
+                        }
+                    };
+                    peakCount++;
+                }
+            }
+        }
+        
+        if (!targetChart.options.plugins.annotation) targetChart.options.plugins.annotation = { annotations: {} };
+        targetChart.options.plugins.annotation.annotations = annotations;
+        targetChart.update('none'); 
     }
 
     const linePlugin = {
@@ -674,7 +886,7 @@
                 ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
                 ctx.beginPath(); ctx.moveTo(targetX, top); ctx.lineTo(targetX, bottom); ctx.stroke();
                 ctx.fillStyle = color; ctx.font = "10px sans-serif";
-                ctx.fillText(`${name} (${wl})`, targetX + 4, top + 12); ctx.restore();
+                ctx.fillText(`${name} (${wl})`, targetX + 4, top - 6); ctx.restore();
             };
             drawLine(stepRatioCache.blue, 452, '#3498db', '汞藍');
             drawLine(stepRatioCache.green, 533, '#2ecc71', '汞綠');
@@ -690,16 +902,16 @@
 
         return new Chart(document.getElementById(canvasId).getContext('2d'), {
             type: 'line',
-            data: { datasets: [{ data: [], borderColor: lineColor, borderWidth: 2, pointRadius: 0, fill: false, tension: 0.12 }] },
+            data: { datasets: [{ data: [], borderColor: lineColor, borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0 }] }, 
             options: {
                 responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false } }, 
-                layout: { padding: { top: 5, left: 0, right: 10, bottom: 0 } },
+                plugins: { legend: { display: false }, annotation: { annotations: {} } }, 
+                layout: { padding: { top: 25, left: 0, right: 10, bottom: 20 } },
                 scales: {
                     x: { type: 'linear', reverse: isRev, min: xMin, max: xMax, bounds: 'ticks', title: { display: true, text: xLabel, color: '#fff' }, ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' } },
                     y: { type: 'linear', min: yLabelStr.includes('A =') ? 0 : undefined, max: yMaxVal, beginAtZero: true, title: { display: true, text: yLabelStr, color: '#fff' }, ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' } }
                 },
-                animation: { duration: 0 }
+                animation: { duration: 0 }, spanGaps: true
             },
             plugins: [linePlugin] 
         });
@@ -715,17 +927,14 @@
     }
     function forceReinitChart() { initAllCharts(); }
 
-    // ==========================================
-    // 7. Tab 2 按鈕與匯出
-    // ==========================================
     function saveReference() {
-        if (!dataRef.intensities.length) { alert("請先啟動攝影機或匯入檔案，取得基準影像！"); return; }
-        if (stateRef === 1) toggleCam('REF'); // 強制凍結
+        if (dataRef.intensities.length === 0) { alert("請先拍攝或匯入檔案！"); return; }
+        if (stateRef === 1) toggleCam('REF'); 
         alert("✅ 基準光源 I₀ 儲存成功！");
     }
 
     function toggleAbsorbanceMode() {
-        if (dataRef.intensities.length === 0) { alert("請先在上半部點擊『儲存為基準光源』！"); return; }
+        if (dataRef.intensities.length === 0) { alert("請先在上半部拍攝並『儲存為基準光源』！"); return; }
         isAbsorbanceMode = !isAbsorbanceMode;
         const btn = document.getElementById('btn-toggle-abs');
         if (isAbsorbanceMode) { btn.innerText = "切換圖表：顯示透射強度 (I)"; btn.style.background = "#2ecc71"; } 
@@ -734,7 +943,7 @@
     }
 
     function exportFinalCSV() {
-        if (!dataRef.intensities.length && !dataSam.intensities.length && !dataTab1.intensities.length) { alert("目前無任何數據！"); return; }
+        if (!dataRef.intensities.length && !dataSam.intensities.length && !dataTab1.intensities.length) { alert("無任何數據可匯出！"); return; }
         
         let srcLen = dataSam.intensities.length || dataRef.intensities.length || dataTab1.intensities.length;
         if (!srcLen) return;
@@ -742,21 +951,23 @@
         let csvContent = `data:text/csv;charset=utf-8,\uFEFF`;
         csvContent += `Wavelength(nm),Calib_Fluorescent,Ref_I0,Sample_I,Absorbance_A\n`;
 
-        let chartPointsCount = 300; 
-        for (let i = 0; i < chartPointsCount; i++) {
-            let ratio = i / (chartPointsCount - 1);
-            let srcIdx = Math.floor(ratio * (srcLen - 1)); srcIdx = Math.max(0, srcIdx);
-            
+        for (let i = 0; i < srcLen; i++) {
+            let ratio = i / (srcLen - 1);
             let wl = isCalibrated ? wavelengthFormula(getAbsoluteCameraRatio(ratio)) : ratio * 100;
-            let I_cal = dataTab1.intensities[srcIdx] || 0;
-            let I0 = dataRef.intensities[srcIdx] || 0;
-            let I_s = dataSam.intensities[srcIdx] || 0;
+            let I_cal = dataTab1.intensities[i] || 0;
+            let I0 = dataRef.intensities[i] || 0;
+            let I_s = dataSam.intensities[i] || 0;
             
+            if(isDarkSubEnabled && darkIntensities[i]) {
+                I_cal = Math.max(0, I_cal - darkIntensities[i]);
+                I0 = Math.max(0.1, I0 - darkIntensities[i]);
+                I_s = Math.max(0, I_s - darkIntensities[i]);
+            }
+
             let A = 0;
             if (I0 > 0 && I_s > 0) {
-                let tempI = I_s; let tempI0 = I0;
-                if (tempI > tempI0) tempI = tempI0;
-                A = -Math.log10(tempI / tempI0);
+                let tempI = Math.min(I_s, I0);
+                A = -Math.log10(tempI / I0);
             }
             csvContent += `${wl.toFixed(2)},${I_cal.toFixed(2)},${I0.toFixed(2)},${I_s.toFixed(2)},${A.toFixed(4)}\n`;
         }
