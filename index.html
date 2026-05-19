@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>線上光譜儀 (完全體版 v38.0)</title>
+    <title>線上光譜儀 (智慧動態縮放版 v40.0)</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
     <style>
@@ -66,7 +66,7 @@
 <div class="tabs">
     <div class="tab active" onclick="switchTab(1)" id="tab-1">1. 光纖幾何與波長校正</div>
     <div class="tab" onclick="switchTab(2)" id="tab-2">2. 吸收光譜對照掃描</div>
-    <div class="version-badge">完全體版 v38.0</div>
+    <div class="version-badge">智慧動態縮放版 v40.0</div>
 </div>
 
 <video id="video-global" playsinline muted class="hidden"></video>
@@ -152,6 +152,7 @@
             <div class="chart-card">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                     <span style="color: var(--active); font-weight:bold; font-size:14px;">動態強度分佈圖 (Wavelength Spectrum)</span>
+                    <button class="action-btn" style="background:#2c3e50; padding:4px 10px; font-size:12px;" onclick="downloadChartImage('TAB1')">🖼️ 儲存圖表</button>
                 </div>
                 <div class="spectrometer-ui-box">
                     <div class="projection-wrapper"><canvas id="canvasProjMain" class="proj-canvas"></canvas></div>
@@ -170,6 +171,7 @@
                     <button class="action-btn success btn-camera-toggle" id="btn-cam-ref" style="width:110px;" onclick="toggleCam('REF')">啟動攝影機</button>
                     <button class="action-btn purple" style="width:90px;" onclick="document.getElementById('file-ref').click()">📂 匯入</button>
                     <button class="action-btn" id="btn-save-ref" style="width:160px; background:#2980b9;" onclick="saveReference()">✅ 儲存為基準光源</button>
+                    <button class="action-btn" style="background:#2c3e50; width:100px;" onclick="downloadChartImage('REF')">🖼️ 儲存圖表</button>
                 </div>
             </div>
             <div class="spectrometer-ui-box">
@@ -185,9 +187,12 @@
                     <div style="display:flex; gap:8px; margin-left: auto;">
                         <button class="action-btn success btn-camera-toggle" id="btn-cam-sam" style="width:110px;" onclick="toggleCam('SAM')">啟動攝影機</button>
                         <button class="action-btn purple" style="width:90px;" onclick="document.getElementById('file-sam').click()">📂 匯入</button>
-                        <button class="action-btn purple" id="btn-toggle-abs" style="width:160px;" onclick="toggleAbsorbanceMode()">切換：顯示吸光度 (A)</button>
+                        <button class="action-btn purple" id="btn-toggle-abs" style="width:160px;" onclick="toggleAbsorbanceMode()">切換：顯示吸光度</button>
                     </div>
-                    <button class="action-btn" style="background:#2ecc71; color:#000; margin-left:12px; width:110px;" onclick="exportFinalCSV()">📥 匯出 CSV</button>
+                    <div style="display:flex; gap:8px; margin-left: 12px;">
+                        <button class="action-btn" style="background:#2c3e50; color:#fff; width:100px;" onclick="downloadChartImage('SAM')">🖼️ 儲存圖表</button>
+                        <button class="action-btn" style="background:#2ecc71; color:#000; width:100px;" onclick="exportFinalCSV()">📥 匯出 CSV</button>
+                    </div>
                 </div>
             </div>
             <div class="spectrometer-ui-box">
@@ -703,7 +708,6 @@
         let finalCameraRatio = clickedCameraRatio;
         if (isAutoPeakSnapEnabled) finalCameraRatio = snapToNearestPeak(clickedCameraRatio);
         
-        // 🌟 修正的絕對物理常數
         let targetWl = (calibStep === 1) ? 435.8 : (calibStep === 2) ? 546.1 : 611.6;
         calibPoints.push([finalCameraRatio, targetWl]);
 
@@ -777,6 +781,7 @@
         if (isLoupeActive && targetCanvas.id === 'canvasProjMain') drawProjectionLoupe(ctx, targetCanvas, targetChart, sourceCanvas, sourceColors);
     }
 
+    // 🌟 核心升級：加入吸光度雜訊過濾器 (Noise Clamping) 
     function updateChartData(targetChart, intensities, referenceForAbsorbance = null) {
         if (!targetChart) return;
         if (intensities.length === 0) {
@@ -815,10 +820,14 @@
 
             if (processedRef) {
                 let I0 = processedRef[i] || 255;
+                let A = 0;
+                // 強制雜訊過濾：若光強度足夠，才計算吸光度；且強制鎖定極限值為 3.0
                 if (I0 > 0 && I > 0) {
-                    let A = -Math.log10(Math.min(I, I0) / I0);
-                    finalChartData.push({ x: xValue, y: A });
-                } else { finalChartData.push({ x: xValue, y: 0 }); }
+                    let tempI = Math.min(I, I0);
+                    A = -Math.log10(tempI / I0);
+                    if (A > 3.0) A = 3.0; // 吸光度 3.0 天花板 (吸收 99.9% 光源)
+                }
+                finalChartData.push({ x: xValue, y: A });
             } else { finalChartData.push({ x: xValue, y: I }); }
         }
         targetChart.data.datasets[0].data = finalChartData; 
@@ -890,13 +899,13 @@
                 ctx.fillStyle = color; ctx.font = "10px sans-serif";
                 ctx.fillText(`${name} (${wl})`, targetX + 4, top - 6); ctx.restore();
             };
-            // 🌟 精確物理常數修正
             drawLine(stepRatioCache.blue, 435.8, '#3498db', '汞藍');
             drawLine(stepRatioCache.green, 546.1, '#2ecc71', '汞綠');
             drawLine(stepRatioCache.red, 611.6, '#e74c3c', '銪紅');
         }
     };
 
+    // 🌟 核心升級：捨棄硬限制 max，改用彈性天花板 suggestedMax
     function createChartInstance(canvasId, lineColor, yLabelStr, yMaxVal) {
         let leftWl = wavelengthFormula(getAbsoluteCameraRatio(0.0)); let rightWl = wavelengthFormula(getAbsoluteCameraRatio(1.0));
         let isRev = isCalibrated && (leftWl > rightWl);
@@ -912,7 +921,8 @@
                 layout: { padding: { top: 25, left: 0, right: 10, bottom: 20 } },
                 scales: {
                     x: { type: 'linear', reverse: isRev, min: xMin, max: xMax, bounds: 'ticks', title: { display: true, text: xLabel, color: '#fff' }, ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' } },
-                    y: { type: 'linear', min: yLabelStr.includes('A =') ? 0 : undefined, max: yMaxVal, beginAtZero: true, title: { display: true, text: yLabelStr, color: '#fff' }, ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' } }
+                    // 使用 suggestedMax 取代 max，讓圖表自動優雅縮放
+                    y: { type: 'linear', min: yLabelStr.includes('A =') ? 0 : undefined, suggestedMax: yMaxVal, beginAtZero: true, title: { display: true, text: yLabelStr, color: '#fff' }, ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' } }
                 },
                 animation: { duration: 0 }, spanGaps: true
             },
@@ -926,7 +936,9 @@
         chartRef = createChartInstance('chartRef', '#3498db', '基準強度 I₀ (Counts)', undefined);
         let sampleColor = isAbsorbanceMode ? '#e74c3c' : '#1abc9c';
         let sampleLabel = isAbsorbanceMode ? '吸光度 A = -log(I/I₀)' : '待測樣本強度 I (Counts)';
-        chartSample = createChartInstance('chartSample', sampleColor, sampleLabel, isAbsorbanceMode ? 2.0 : undefined);
+        // 吸收度基準高度設為 2.0，超過自動伸展
+        let sampleSuggestedMax = isAbsorbanceMode ? 2.0 : undefined;
+        chartSample = createChartInstance('chartSample', sampleColor, sampleLabel, sampleSuggestedMax);
     }
     function forceReinitChart() { initAllCharts(); }
 
@@ -971,12 +983,46 @@
             if (I0 > 0 && I_s > 0) {
                 let tempI = Math.min(I_s, I0);
                 A = -Math.log10(tempI / I0);
+                if (A > 3.0) A = 3.0; // 同步限制 CSV 中的極端雜訊值
             }
             csvContent += `${wl.toFixed(2)},${I_cal.toFixed(2)},${I0.toFixed(2)},${I_s.toFixed(2)},${A.toFixed(4)}\n`;
         }
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", `Spectrum_Final_Report.csv`);
         document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    }
+
+    function downloadChartImage(zone) {
+        let projCanvas, chartCanvas, filename, titleText;
+        if (zone === 'TAB1') {
+            projCanvas = document.getElementById('canvasProjMain'); chartCanvas = document.getElementById('chartMain');
+            filename = 'Spectrum_Calibration.png'; titleText = 'Calibration Spectrum (校正光譜)';
+        } else if (zone === 'REF') {
+            projCanvas = document.getElementById('canvasProjRef'); chartCanvas = document.getElementById('chartRef');
+            filename = 'Spectrum_Reference.png'; titleText = 'Reference Spectrum (基準光源 I₀)';
+        } else if (zone === 'SAM') {
+            projCanvas = document.getElementById('canvasProjSample'); chartCanvas = document.getElementById('chartSample');
+            filename = 'Spectrum_Sample.png'; titleText = isAbsorbanceMode ? 'Absorbance Spectrum (吸光度 A)' : 'Sample Spectrum (樣本強度 I)';
+        }
+
+        if (!chartCanvas || !projCanvas) return;
+        const mergeCanvas = document.createElement('canvas'); const ctx = mergeCanvas.getContext('2d');
+        const width = chartCanvas.width;
+        const projHeight = Math.round(width * (projCanvas.height / projCanvas.width));
+        const chartHeight = chartCanvas.height; const padding = Math.max(40, width * 0.03);
+        
+        mergeCanvas.width = width; mergeCanvas.height = padding + projHeight + chartHeight + padding * 0.8;
+
+        ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, mergeCanvas.width, mergeCanvas.height);
+        ctx.fillStyle = '#ecf0f1'; ctx.font = `bold ${Math.max(16, width * 0.02)}px sans-serif`;
+        ctx.textAlign = 'center'; ctx.fillText(titleText, width / 2, padding * 0.6);
+        ctx.drawImage(projCanvas, 0, 0, projCanvas.width, projCanvas.height, 0, padding, width, projHeight);
+        ctx.drawImage(chartCanvas, 0, padding + projHeight);
+
+        ctx.fillStyle = '#7f8c8d'; ctx.font = `${Math.max(12, width * 0.015)}px sans-serif`; ctx.textAlign = 'right';
+        ctx.fillText(`Generated by Online Spectrometer | ${new Date().toLocaleString()}`, width - padding*0.5, mergeCanvas.height - padding*0.2);
+
+        const link = document.createElement('a'); link.download = filename; link.href = mergeCanvas.toDataURL('image/png'); link.click();
     }
 
     window.addEventListener('load', () => {
