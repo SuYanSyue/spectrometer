@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>線上光譜儀 (智慧動態縮放版 v40.0)</title>
+    <title>線上光譜儀 (絕對閾值與平頂尋峰版 v43.0)</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
     <style>
@@ -66,7 +66,7 @@
 <div class="tabs">
     <div class="tab active" onclick="switchTab(1)" id="tab-1">1. 光纖幾何與波長校正</div>
     <div class="tab" onclick="switchTab(2)" id="tab-2">2. 吸收光譜對照掃描</div>
-    <div class="version-badge">智慧動態縮放版 v40.0</div>
+    <div class="version-badge">尋峰進化版 v43.0</div>
 </div>
 
 <video id="video-global" playsinline muted class="hidden"></video>
@@ -182,9 +182,18 @@
 
         <div class="chart-card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                <span style="color: #e74c3c; font-size: 15px; font-weight:bold;">待測樣本掃描 (Sample)</span>
-                <div style="display:flex; flex-grow:1; justify-content:space-between;">
-                    <div style="display:flex; gap:8px; margin-left: auto;">
+                <div style="display:flex; align-items:center; gap: 15px;">
+                    <span style="color: #e74c3c; font-size: 15px; font-weight:bold; white-space:nowrap;">待測樣本掃描 (Sample)</span>
+                    
+                    <div id="snr-control-group" style="display:none; align-items:center; gap:6px; background:var(--box-bg); padding:2px 8px; border-radius:4px; border:1px solid var(--border);">
+                        <span style="font-size:11px; color:#bdc3c7; cursor:help;" title="當基準光源(I₀)強度低於此絕對值時，判定為雜訊，吸光度強制歸零">有效光源閾值</span>
+                        <input type="range" id="snr-th" min="1" max="50" value="10" oninput="onSNRChange()" style="width: 60px; height:10px;">
+                        <span id="txt-snr-th" style="font-family:monospace; font-size:11px; color:var(--active);">10 Counts</span>
+                    </div>
+                </div>
+
+                <div style="display:flex; flex-grow:1; justify-content:flex-end;">
+                    <div style="display:flex; gap:8px;">
                         <button class="action-btn success btn-camera-toggle" id="btn-cam-sam" style="width:110px;" onclick="toggleCam('SAM')">啟動攝影機</button>
                         <button class="action-btn purple" style="width:90px;" onclick="document.getElementById('file-sam').click()">📂 匯入</button>
                         <button class="action-btn purple" id="btn-toggle-abs" style="width:160px;" onclick="toggleAbsorbanceMode()">切換：顯示吸光度</button>
@@ -241,6 +250,8 @@
     let darkIntensities = []; 
     
     let isVideoCover = false;
+    // 🌟 絕對 SNR 閾值 (初始 10 Counts)
+    let snrThresholdCounts = 10;
 
     let chartMain = null; let chartRef = null; let chartSample = null;
     let stateTab1 = 0; let stateRef = 0; let stateSam = 0;
@@ -327,6 +338,13 @@
         peakWindowRatio = parseInt(document.getElementById('peak-win').value) / 1000;
         document.getElementById('txt-peak-th').innerText = (peakThresholdRatio * 100).toFixed(0) + "%";
         document.getElementById('txt-peak-win').innerText = document.getElementById('peak-win').value;
+        processFrame();
+    }
+
+    // 🌟 更新 UI 顯示為 Counts
+    function onSNRChange() {
+        snrThresholdCounts = parseInt(document.getElementById('snr-th').value);
+        document.getElementById('txt-snr-th').innerText = snrThresholdCounts + " Counts";
         processFrame();
     }
 
@@ -781,7 +799,7 @@
         if (isLoupeActive && targetCanvas.id === 'canvasProjMain') drawProjectionLoupe(ctx, targetCanvas, targetChart, sourceCanvas, sourceColors);
     }
 
-    // 🌟 核心升級：加入吸光度雜訊過濾器 (Noise Clamping) 
+    // 🌟 核心：平滑歸零與平頂尋峰演算法
     function updateChartData(targetChart, intensities, referenceForAbsorbance = null) {
         if (!targetChart) return;
         if (intensities.length === 0) {
@@ -821,49 +839,83 @@
             if (processedRef) {
                 let I0 = processedRef[i] || 255;
                 let A = 0;
-                // 強制雜訊過濾：若光強度足夠，才計算吸光度；且強制鎖定極限值為 3.0
-                if (I0 > 0 && I > 0) {
+                // 💡 絕對 SNR 閾值過濾與強制平滑歸零
+                if (I0 > snrThresholdCounts) {
                     let tempI = Math.min(I, I0);
+                    if(tempI <= 0) tempI = 0.1;
                     A = -Math.log10(tempI / I0);
-                    if (A > 3.0) A = 3.0; // 吸光度 3.0 天花板 (吸收 99.9% 光源)
+                    if (A > 3.0) A = 3.0; 
+                } else {
+                    A = 0.0; // 背景過弱強制歸零
                 }
                 finalChartData.push({ x: xValue, y: A });
             } else { finalChartData.push({ x: xValue, y: I }); }
         }
         targetChart.data.datasets[0].data = finalChartData; 
 
+        // 🌟 平頂尋峰演算法
         let annotations = {};
         if (isRadarEnabled && finalChartData.length > 0) {
+            let candidates = [];
+            let trend = 0;
+            let plateauStart = -1;
+            
+            // 掃描轉折點 (找出所有可能的尖峰或平頂)
+            for(let i = 1; i < finalChartData.length; i++) {
+                let diff = finalChartData[i].y - finalChartData[i-1].y;
+                if (diff > 1e-4) {
+                    trend = 1; plateauStart = -1;
+                } else if (diff < -1e-4) {
+                    if (trend === 1) candidates.push(i-1); // 尖峰
+                    else if (plateauStart !== -1) candidates.push(Math.floor((plateauStart + i - 1) / 2)); // 平頂取中間
+                    trend = -1; plateauStart = -1;
+                } else {
+                    if (trend === 1 && plateauStart === -1) plateauStart = i - 1; // 進入平頂
+                }
+            }
+            
+            let validPeaks = [];
             let maxY = Math.max(...finalChartData.map(d => d.y));
             let absThreshold = maxY * peakThresholdRatio; 
-            
             let windowSize = Math.max(1, Math.floor(srcLen * peakWindowRatio)); 
-
-            let peakCount = 0;
-            for (let i = windowSize; i < finalChartData.length - windowSize; i++) {
-                let current = finalChartData[i];
-                if (current.y < absThreshold) continue;
-
-                let isPeak = true;
-                for (let j = 1; j <= windowSize; j++) {
-                    if (current.y <= finalChartData[i-j].y || current.y <= finalChartData[i+j].y) {
-                        isPeak = false; break;
+            
+            for (let idx of candidates) {
+                let peakY = finalChartData[idx].y;
+                if (peakY < absThreshold || peakY === 0) continue; // 濾除太低或是被 SNR 強制歸零的偽峰
+                
+                // 確認在窗口範圍內它是絕對的最大值
+                let isHighest = true;
+                let start = Math.max(0, idx - windowSize);
+                let end = Math.min(finalChartData.length - 1, idx + windowSize);
+                for (let j = start; j <= end; j++) {
+                    if (finalChartData[j].y > peakY) { isHighest = false; break; }
+                }
+                
+                if (isHighest) {
+                    // 避免同一個平頂區塊被標出多個點
+                    if (validPeaks.length > 0 && Math.abs(idx - validPeaks[validPeaks.length-1].idx) <= windowSize) {
+                        if (peakY > validPeaks[validPeaks.length-1].y) {
+                            validPeaks[validPeaks.length-1] = {idx: idx, y: peakY, x: finalChartData[idx].x};
+                        }
+                    } else {
+                        validPeaks.push({idx: idx, y: peakY, x: finalChartData[idx].x});
                     }
                 }
+            }
 
-                if (isPeak) {
-                    annotations[`peak${peakCount}`] = {
-                        type: 'line', xMin: current.x, xMax: current.x,
-                        borderColor: 'rgba(241, 196, 15, 0.5)', borderWidth: 1.5, borderDash: [3, 3],
-                        label: {
-                            display: true, content: `${current.x.toFixed(1)} nm`, position: 'start',
-                            backgroundColor: 'rgba(0,0,0,0.85)', color: '#f1c40f',
-                            font: { size: 10, family: 'monospace', weight: 'bold' },
-                            yAdjust: (peakCount % 2 === 0) ? -25 : -45 
-                        }
-                    };
-                    peakCount++;
-                }
+            let peakCount = 0;
+            for (let peak of validPeaks) {
+                annotations[`peak${peakCount}`] = {
+                    type: 'line', xMin: peak.x, xMax: peak.x,
+                    borderColor: 'rgba(241, 196, 15, 0.6)', borderWidth: 1.5, borderDash: [3, 3],
+                    label: {
+                        display: true, content: `${peak.x.toFixed(1)} nm`, position: 'start',
+                        backgroundColor: 'rgba(0,0,0,0.85)', color: '#f1c40f',
+                        font: { size: 10, family: 'monospace', weight: 'bold' },
+                        yAdjust: (peakCount % 2 === 0) ? -25 : -45 
+                    }
+                };
+                peakCount++;
             }
         }
         
@@ -905,7 +957,6 @@
         }
     };
 
-    // 🌟 核心升級：捨棄硬限制 max，改用彈性天花板 suggestedMax
     function createChartInstance(canvasId, lineColor, yLabelStr, yMaxVal) {
         let leftWl = wavelengthFormula(getAbsoluteCameraRatio(0.0)); let rightWl = wavelengthFormula(getAbsoluteCameraRatio(1.0));
         let isRev = isCalibrated && (leftWl > rightWl);
@@ -921,10 +972,9 @@
                 layout: { padding: { top: 25, left: 0, right: 10, bottom: 20 } },
                 scales: {
                     x: { type: 'linear', reverse: isRev, min: xMin, max: xMax, bounds: 'ticks', title: { display: true, text: xLabel, color: '#fff' }, ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' } },
-                    // 使用 suggestedMax 取代 max，讓圖表自動優雅縮放
                     y: { type: 'linear', min: yLabelStr.includes('A =') ? 0 : undefined, suggestedMax: yMaxVal, beginAtZero: true, title: { display: true, text: yLabelStr, color: '#fff' }, ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' } }
                 },
-                animation: { duration: 0 }, spanGaps: true
+                animation: { duration: 0 }, spanGaps: false
             },
             plugins: [linePlugin] 
         });
@@ -936,7 +986,6 @@
         chartRef = createChartInstance('chartRef', '#3498db', '基準強度 I₀ (Counts)', undefined);
         let sampleColor = isAbsorbanceMode ? '#e74c3c' : '#1abc9c';
         let sampleLabel = isAbsorbanceMode ? '吸光度 A = -log(I/I₀)' : '待測樣本強度 I (Counts)';
-        // 吸收度基準高度設為 2.0，超過自動伸展
         let sampleSuggestedMax = isAbsorbanceMode ? 2.0 : undefined;
         chartSample = createChartInstance('chartSample', sampleColor, sampleLabel, sampleSuggestedMax);
     }
@@ -952,8 +1001,14 @@
         if (dataRef.intensities.length === 0) { alert("請先在上半部拍攝並『儲存為基準光源』！"); return; }
         isAbsorbanceMode = !isAbsorbanceMode;
         const btn = document.getElementById('btn-toggle-abs');
-        if (isAbsorbanceMode) { btn.innerText = "切換圖表：顯示透射強度 (I)"; btn.style.background = "#2ecc71"; } 
-        else { btn.innerText = "切換圖表：顯示吸光度 (A)"; btn.style.background = "#8e44ad"; }
+        const snrGroup = document.getElementById('snr-control-group');
+        if (isAbsorbanceMode) { 
+            btn.innerText = "切換：顯示透射強度 (I)"; btn.style.background = "#2ecc71"; 
+            snrGroup.style.display = "flex"; 
+        } else { 
+            btn.innerText = "切換：顯示吸光度 (A)"; btn.style.background = "#8e44ad"; 
+            snrGroup.style.display = "none"; 
+        }
         forceReinitChart(); processFrame();
     }
 
@@ -979,13 +1034,15 @@
                 I_s = Math.max(0, I_s - darkIntensities[i]);
             }
 
-            let A = 0;
-            if (I0 > 0 && I_s > 0) {
+            let A = "0.0000";
+            if (I0 > snrThresholdCounts) {
                 let tempI = Math.min(I_s, I0);
-                A = -Math.log10(tempI / I0);
-                if (A > 3.0) A = 3.0; // 同步限制 CSV 中的極端雜訊值
+                if (tempI <= 0) tempI = 0.1;
+                let valA = -Math.log10(tempI / I0);
+                if (valA > 3.0) valA = 3.0; 
+                A = valA.toFixed(4);
             }
-            csvContent += `${wl.toFixed(2)},${I_cal.toFixed(2)},${I0.toFixed(2)},${I_s.toFixed(2)},${A.toFixed(4)}\n`;
+            csvContent += `${wl.toFixed(2)},${I_cal.toFixed(2)},${I0.toFixed(2)},${I_s.toFixed(2)},${A}\n`;
         }
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", `Spectrum_Final_Report.csv`);
