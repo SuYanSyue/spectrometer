@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>線上光譜儀 (萬用高解析完全體版 v44.0)</title>
+    <title>線上光譜儀 (萬用高解析完全體版 v45.0)</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
     <style>
@@ -66,7 +66,7 @@
 <div class="tabs">
     <div class="tab active" onclick="switchTab(1)" id="tab-1">1. 光纖幾何與波長校正</div>
     <div class="tab" onclick="switchTab(2)" id="tab-2">2. 吸收光譜對照掃描</div>
-    <div class="version-badge">萬用高解析版 v44.0</div>
+    <div class="version-badge">萬用完全體版 v45.0</div>
 </div>
 
 <video id="video-global" playsinline muted class="hidden"></video>
@@ -370,11 +370,9 @@
         btn.innerText = "擷取中...請遮光"; btn.className = "action-btn warning";
     }
 
-    // 🌟 核心進化：啟動相機最大解析度（非強制約束，完美兼顧 Mac 與 Windows）
     function startGlobalCamera() {
         if (isCameraGlobalActive) return;
         
-        // 請求 4K 最高目標，不加任何 exact 或是 facingMode，讓瀏覽器自動調用硬體極限
         const constraints = {
             video: {
                 width: { ideal: 3840 },
@@ -390,18 +388,17 @@
             video.onloadedmetadata = () => { 
                 canvasV.width = video.videoWidth; 
                 canvasV.height = video.videoHeight; 
-                console.log(`相機對位成功！目前運作真實物理解析度: ${video.videoWidth} x ${video.videoHeight}`);
+                console.log(`相機連結成功，當前解析度: ${video.videoWidth} x ${video.videoHeight}`);
                 startRenderLoop(); 
             };
         })
         .catch(err => {
-            console.error("高解析相機請求失敗:", err);
-            // 萬一遇到極端舊版瀏覽器，自動無縫退回標準相機配置
+            console.error("最大化解析度請求不被硬體支援，切換至標準模式:", err);
             navigator.mediaDevices.getUserMedia({ video: true })
             .then(stream => {
                 video.srcObject = stream; video.play(); isCameraGlobalActive = true;
                 video.onloadedmetadata = () => { canvasV.width = video.videoWidth; canvasV.height = video.videoHeight; startRenderLoop(); };
-            }).catch(e => alert("無法連線至任何影像設備: " + e));
+            }).catch(e => alert("設備啟動失敗: " + e));
         });
     }
 
@@ -772,8 +769,11 @@
                 wavelengthFormula = (r) => coeffs[0]*r*r + coeffs[1]*r + coeffs[2];
                 document.getElementById('calib-status-txt').innerHTML = `✅ 絕對對齊`; document.getElementById('calib-status-txt').style.color = '#2ecc71';
             } else {
-                const res = regression.linear(calibPoints);
-                wavelengthFormula = (r) => res.equation[0]*r + res.equation[1];
+                // 💡 修正安全退化：當點位無法組成拋物線時，自動手動線性擬合，免除外部庫未安裝的地雷
+                let r0 = calibPoints[0][0], w0 = calibPoints[0][1];
+                let r2 = calibPoints[2][0], w2 = calibPoints[2][1];
+                let slope = (w2 - w0) / (r2 - r0 || 1);
+                wavelengthFormula = (r) => w0 + slope * (r - r0);
                 document.getElementById('calib-status-txt').innerHTML = `✅ 線性退化`; document.getElementById('calib-status-txt').style.color = '#e67e22';
             }
             isCalibrated = true; document.getElementById('btn-calib-action').innerText = "📍 重新標定"; 
@@ -823,7 +823,6 @@
         if (isLoupeActive && targetCanvas.id === 'canvasProjMain') drawProjectionLoupe(ctx, targetCanvas, targetChart, sourceCanvas, sourceColors);
     }
 
-    // 🌟 核心：絕對 Counts 降噪遮罩 ＋ 平頂轉折點尋峰演算法
     function updateChartData(targetChart, intensities, referenceForAbsorbance = null) {
         if (!targetChart) return;
         if (intensities.length === 0) {
@@ -863,12 +862,11 @@
             if (processedRef) {
                 let I0 = processedRef[i] || 255;
                 let A = 0;
-                // 💡 絕對強度除噪：當基準光 Counts 大於滑桿設定，才進行有效運算，否則強制歸零
                 if (I0 > snrThresholdCounts) {
                     let tempI = Math.min(I, I0);
                     if(tempI <= 0) tempI = 0.1;
                     A = -Math.log10(tempI / I0);
-                    if (A > 3.0) A = 3.0; // 儀器物理飽和度天花板
+                    if (A > 3.0) A = 3.0; 
                 } else {
                     A = 0.0; 
                 }
@@ -877,7 +875,6 @@
         }
         targetChart.data.datasets[0].data = finalChartData; 
 
-        // 🌟 進化版：平頂尋峰引擎 (Plateau Peak Finder)
         let annotations = {};
         if (isRadarEnabled && finalChartData.length > 0) {
             let candidates = [];
@@ -968,7 +965,8 @@
                     targetX = xAxis.getPixelForValue(subRatio * 100);
                 }
                 ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
-                ctx.beginPath(); ctx.moveTo(targetX, top); ctx.lineTo(targetX, bottom); stroke();
+                ctx.beginPath(); ctx.moveTo(targetX, top); ctx.lineTo(targetX, bottom); 
+                ctx.stroke(); // 🌟 這裡完美修復：補回遺失的物件導向呼叫 ctx.
                 ctx.fillStyle = color; ctx.font = "10px sans-serif";
                 ctx.fillText(`${name} (${wl})`, targetX + 4, top - 6); ctx.restore();
             };
