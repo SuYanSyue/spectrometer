@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>線上光譜儀 (高相容完全體版 v46.0)</title>
+    <title>線上光譜儀 (極速尋標完全體版 v47.0)</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
     <style>
@@ -66,7 +66,7 @@
 <div class="tabs">
     <div class="tab active" onclick="switchTab(1)" id="tab-1">1. 光纖幾何與波長校正</div>
     <div class="tab" onclick="switchTab(2)" id="tab-2">2. 吸收光譜對照掃描</div>
-    <div class="version-badge">高相容完全體版 v46.0</div>
+    <div class="version-badge">極速尋標版 v47.0</div>
 </div>
 
 <video id="video-global" playsinline muted class="hidden"></video>
@@ -370,40 +370,79 @@
         btn.innerText = "擷取中...請遮光"; btn.className = "action-btn warning";
     }
 
-    // 🌟 終極高相容性相機引擎 (瀑布流降級策略)
+    // 🌟 核心進化：智慧設備尋標系統 (精準抓取外接相機)
     async function startGlobalCamera() {
         if (isCameraGlobalActive) return;
 
-        const resolutions = [
-            { width: { ideal: 3840 }, height: { ideal: 2160 } }, 
-            { width: { ideal: 1920 }, height: { ideal: 1080 } }, 
-            { width: { ideal: 1280 }, height: { ideal: 720 } },  
-            true                                                 
-        ];
-
-        for (let i = 0; i < resolutions.length; i++) {
+        try {
+            // 1. 為了讓 Mac/Safari 吐出真實的設備名稱，必須先「輕敲」獲取基礎權限
             try {
-                const constraints = { video: resolutions[i] };
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                
-                video.srcObject = stream;
-                await video.play();
-                isCameraGlobalActive = true;
-                
-                video.onloadedmetadata = () => {
-                    canvasV.width = video.videoWidth;
-                    canvasV.height = video.videoHeight;
-                    console.log(`✅ 相機連線成功 (觸發策略 ${i + 1})！真實解析度: ${video.videoWidth} x ${video.videoHeight}`);
-                    startRenderLoop();
-                };
-                return; 
-
-            } catch (err) {
-                console.warn(`⚠️ 相機策略 ${i + 1} 被 Mac/驅動程式拒絕，準備嘗試降級...`, err.name);
+                const initStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                initStream.getTracks().forEach(track => track.stop());
+            } catch(e) {
+                console.warn("無法取得初始相機權限", e);
             }
+
+            // 2. 瞬間掃描所有連線的攝影機
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+            if (videoDevices.length === 0) {
+                alert("找不到任何攝影機設備！請檢查連接。");
+                return;
+            }
+
+            // 3. 智慧排雷：過濾掉筆電內建鏡頭，鎖定 USB 外接鏡頭
+            let selectedDevice = videoDevices[0];
+            for (let device of videoDevices) {
+                let label = device.label.toLowerCase();
+                // 排除 Mac 的 FaceTime 與 Windows 的內建鏡頭
+                if (!label.includes("facetime") && !label.includes("built-in") && !label.includes("integrated")) {
+                    selectedDevice = device;
+                    break;
+                }
+            }
+
+            console.log(`🎯 鎖定目標外接攝影機: ${selectedDevice.label || "未命名設備 (" + selectedDevice.deviceId + ")"}`);
+
+            // 4. 精準連線：指定 deviceId 並要求最高畫質
+            const constraints = {
+                video: {
+                    deviceId: { exact: selectedDevice.deviceId },
+                    width: { ideal: 3840 },
+                    height: { ideal: 2160 }
+                }
+            };
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                setupVideoStream(stream);
+            } catch (err) {
+                console.warn("高解析度請求失敗，瞬間退回設備預設解析度...");
+                // 若 4K 失敗，不再浪費時間遞減，直接用該設備的預設安全值啟動
+                const fallbackConstraints = {
+                    video: { deviceId: { exact: selectedDevice.deviceId } }
+                };
+                const fallbackStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+                setupVideoStream(fallbackStream);
+            }
+
+        } catch (err) {
+            console.error("相機啟動徹底失敗:", err);
+            alert("相機啟動失敗，請檢查權限或硬體連接狀態。\n錯誤: " + err.message);
         }
-        
-        alert("相機啟動徹底失敗！請確認：\n1. 攝影機 USB 已插妥\n2. Mac 的「隱私權與安全性」已允許瀏覽器存取相機\n3. 沒有其他程式正在佔用該攝影機");
+    }
+
+    function setupVideoStream(stream) {
+        video.srcObject = stream;
+        video.play();
+        isCameraGlobalActive = true;
+        video.onloadedmetadata = () => {
+            canvasV.width = video.videoWidth;
+            canvasV.height = video.videoHeight;
+            console.log(`✅ 連線成功！真實解析度: ${video.videoWidth} x ${video.videoHeight}`);
+            startRenderLoop();
+        };
     }
 
     function checkAndStopGlobalCamera() {
